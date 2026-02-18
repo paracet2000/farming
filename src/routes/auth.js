@@ -20,7 +20,7 @@ router.post('/login', asyncHandler(async (req, res) => {
   const ok = await userModel.verifyPassword(user, password);
   if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
   const payload = { id: user.id, username: user.username, groups: user.groups || [] };
-  const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
+  const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '1d' });
   return res.json({ token, user: payload });
 }));
 
