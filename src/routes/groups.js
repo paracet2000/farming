@@ -5,8 +5,9 @@ const { authRequired, allowGroups } = require('../middleware/auth');
 
 router.get('/', authRequired, groupController.listGroups);
 
-router.post('/', authRequired, allowGroups('admin', 'admins'), groupController.createGroup);
+router.post('/', authRequired, allowGroups('admin', 'admins'), groupController.createGroup); // only admins can create groups
 
-router.post('/:groupName/users', authRequired, allowGroups('admin', 'admins'), groupController.addUserToGroup);
+router.post('/:groupName/users', authRequired, allowGroups('admin', 'admins'), groupController.addUserToGroup); // only admins can add users to groups
 
 module.exports = router;
+
