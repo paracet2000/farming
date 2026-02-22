@@ -46,23 +46,21 @@ function askConfirmation(question) {
   });
 }
 
+function askInput(question) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(String(answer || '').trim());
+    });
+  });
+}
+
 async function main() {
-  const message = process.argv.slice(2).join(' ').trim();
-
-  if (!message) {
-    process.stderr.write('Usage: npm run git:push -- "your commit message"\n');
-    process.exit(1);
-  }
-
-  const pendingChanges = runCapture('git', ['status', '--porcelain']).trim();
-
-  if (pendingChanges) {
-    run('git', ['add', '-A']);
-    run('git', ['commit', '-m', message]);
-  } else {
-    process.stdout.write('No file changes detected. Skip commit and continue push.\n');
-  }
-
   const currentBranch = runCapture('git', ['branch', '--show-current']).trim();
   const trackedRemote =
     runCapture('git', ['config', '--get', `branch.${currentBranch}.remote`], { allowFail: true }).trim() || 'origin';
@@ -77,6 +75,20 @@ async function main() {
   if (answer !== 'y' && answer !== 'yes') {
     process.stdout.write('Push canceled.\n');
     process.exit(0);
+  }
+
+  const pendingChanges = runCapture('git', ['status', '--porcelain']).trim();
+  if (pendingChanges) {
+    const message = await askInput('Commit message: ');
+    if (!message) {
+      process.stderr.write('Commit message is required when changes exist.\n');
+      process.exit(1);
+    }
+
+    run('git', ['add', '-A']);
+    run('git', ['commit', '-m', message]);
+  } else {
+    process.stdout.write('No file changes detected. Skip commit.\n');
   }
 
   run('git', ['push', trackedRemote, currentBranch]);
