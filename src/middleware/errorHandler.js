@@ -1,8 +1,19 @@
+const logger = require('../lib/logger');
+
 function errorHandler(err, req, res, next) {
-  // simple centralized error handler that uses res.fail when available
-  // log the error (could be enhanced to use a logger)
-  console.error(err && err.stack ? err.stack : err);
+  const activeLogger = req?.log || logger;
   const status = err && err.status ? err.status : 500;
+
+  activeLogger.error(
+    {
+      err,
+      status,
+      method: req?.method,
+      url: req?.originalUrl
+    },
+    'Unhandled request error'
+  );
+
   res.status(status);
   if (typeof res.fail === 'function') {
     res.fail(status, err && err.message ? err.message : 'Internal Server Error', err && err.details ? err.details : null);

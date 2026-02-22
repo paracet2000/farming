@@ -7,8 +7,6 @@ router.get('/', authRequired, groupController.listGroups);
 
 router.post('/', authRequired, groupController.createGroup);
 
-router.post('/:name/users', authRequired, groupController.addUserToGroup);
-
-// router.delete('/:name/users', authRequired, groupController.removeUserFromGroup);
+router.post('/:groupName/users', authRequired, groupController.addUserToGroup);
 
 module.exports = router;

@@ -4,13 +4,16 @@ const express = require('express');
 const bodyParser = require('express').json;
 
 const connectDb = require('./db');
+const logger = require('./lib/logger');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const groupRoutes = require('./routes/groups');
 const standardResponse = require('./middleware/stdResponse');
+const requestLogger = require('./middleware/requestLogger');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
+app.use(requestLogger);
 app.use(bodyParser());
 app.use(standardResponse);
 
@@ -27,10 +30,10 @@ const port = process.env.PORT || 3000;
 
 async function start() {
   await connectDb();
-  app.listen(port, () => console.log(`Server listening on port ${port}`));
+  app.listen(port, () => logger.info({ port }, 'Server listening'));
 }
 
 start().catch((err) => {
-  console.error('Failed to start server', err);
+  logger.fatal({ err }, 'Failed to start server');
   process.exit(1);
 });

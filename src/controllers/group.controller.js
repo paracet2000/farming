@@ -17,8 +17,8 @@ function isAdmin(authUser) {
 
 function formatGroup(group) {
   return {
-    id: group.groupId,
-    name: group.name,
+    groupId: group.groupId,
+    groupName: group.groupName,
     description: group.description || '',
     users: Array.isArray(group.members) ? group.members.map((m) => m.userId) : [],
     createdAt: group.createdAt,
@@ -28,7 +28,7 @@ function formatGroup(group) {
 
 exports.listGroups = asyncHandler(async (req, res) => {
   const groups = await prisma.group.findMany({
-    orderBy: { name: 'asc' },
+    orderBy: { groupName: 'asc' },
     include: {
       members: {
         select: { userId: true }
@@ -40,15 +40,15 @@ exports.listGroups = asyncHandler(async (req, res) => {
 });
 
 exports.createGroup = asyncHandler(async (req, res) => {
-  const { name, description } = req.body || {};
-  const normalizedName = normalizeGroupName(name);
+  const { groupName, description } = req.body || {};
+  const normalizedName = normalizeGroupName(groupName);
 
   if (!normalizedName) {
     return res.status(400).json({ error: { message: 'name required' } });
   }
 
   const exists = await prisma.group.findUnique({
-    where: { name: normalizedName }
+    where: { groupName: normalizedName }
   });
 
   if (exists) {
@@ -57,7 +57,7 @@ exports.createGroup = asyncHandler(async (req, res) => {
 
   const group = await prisma.group.create({
     data: {
-      name: normalizedName,
+      groupName: normalizedName,
       description: String(description || '').trim()
     },
     include: {
@@ -71,7 +71,7 @@ exports.createGroup = asyncHandler(async (req, res) => {
 });
 
 exports.addUserToGroup = asyncHandler(async (req, res) => {
-  const groupName = normalizeGroupName(req.params.name);
+  const groupName = normalizeGroupName(req.params.groupName);
   const { userId } = req.body || {};
 
   if (!groupName || !userId) {
@@ -84,7 +84,7 @@ exports.addUserToGroup = asyncHandler(async (req, res) => {
   }
 
   const [group, user] = await Promise.all([
-    prisma.group.findUnique({ where: { name: groupName } }),
+    prisma.group.findUnique({ where: { groupName: groupName } }),
     prisma.user.findUnique({ where: { userId: String(userId) } })
   ]);
 
@@ -110,7 +110,7 @@ exports.addUserToGroup = asyncHandler(async (req, res) => {
     update: {}
   });
 
-  if (group.name === 'admins' && !(user.roles || []).includes('admin')) {
+  if (group.groupName === 'admins' && !(user.roles || []).includes('admin')) {
     await prisma.user.update({
       where: { userId: user.userId },
       data: {
@@ -136,7 +136,7 @@ exports.addUserToGroup = asyncHandler(async (req, res) => {
 });
 
 exports.removeUserFromGroup = asyncHandler(async (req, res) => {
-  const groupName = normalizeGroupName(req.params.name);
+  const groupName = normalizeGroupName(req.params.groupName);
   const { userId } = req.body || {};
 
   if (!groupName || !userId) {
@@ -148,7 +148,7 @@ exports.removeUserFromGroup = asyncHandler(async (req, res) => {
     return res.status(403).json({ error: { message: 'Forbidden' } });
   }
 
-  const group = await prisma.group.findUnique({ where: { name: groupName } });
+  const group = await prisma.group.findUnique({ where: { groupName: groupName } });
   if (!group) {
     return res.status(404).json({ error: { message: 'Group not found' } });
   }
@@ -160,7 +160,7 @@ exports.removeUserFromGroup = asyncHandler(async (req, res) => {
     }
   });
 
-  if (group.name === 'admins') {
+  if (group.groupName === 'admins') {
     const user = await prisma.user.findUnique({ where: { userId: String(userId) } });
     if (user) {
       const nextRoles = (user.roles || []).filter((r) => r !== 'admin');
