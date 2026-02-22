@@ -15,6 +15,10 @@ function isAdmin(authUser) {
   return groups.includes('admins') || groups.includes('admin') || roles.includes('admin');
 }
 
+function isPrivilegedGroup(groupName) {
+  return groupName === 'admins' || groupName === 'admin';
+}
+
 function formatGroup(group) {
   return {
     groupId: group.groupId,
@@ -78,14 +82,23 @@ exports.addUserToGroup = asyncHandler(async (req, res) => {
     return res.status(400).json({ error: { message: 'group name and userId are required' } });
   }
 
+  const targetUserId = String(userId);
   const requesterId = getUserId(req.user);
-  if (!isAdmin(req.user) && requesterId !== String(userId)) {
+  const requesterIsAdmin = isAdmin(req.user);
+  const isSelf = requesterId === targetUserId;
+
+  if (!requesterIsAdmin && !isSelf) {
     return res.status(403).json({ error: { message: 'Forbidden' } });
+  }
+
+  // Prevent privilege escalation via self-join to privileged groups.
+  if (!requesterIsAdmin && isPrivilegedGroup(groupName)) {
+    return res.status(403).json({ error: { message: 'Only admin can manage privileged groups' } });
   }
 
   const [group, user] = await Promise.all([
     prisma.group.findUnique({ where: { groupName: groupName } }),
-    prisma.user.findUnique({ where: { userId: String(userId) } })
+    prisma.user.findUnique({ where: { userId: targetUserId } })
   ]);
 
   if (!group) {

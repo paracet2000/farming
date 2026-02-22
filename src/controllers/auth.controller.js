@@ -4,18 +4,8 @@ const prisma = require('../lib/prisma');
 const asyncHandler = require('../utils/asyncHandler');
 const { JWT_SECRET } = require('../middleware/auth');
 
-const ALLOWED_ROLES = ['user', 'head', 'approver', 'hr', 'finance', 'admin'];
 const BASE_LOGIN_FAIL_DELAY_MS = 5 * 1000;
 const MAX_LOGIN_FAIL_DELAY_MS = 24 * 60 * 60 * 1000;
-
-function normalizeRoles(value) {
-  const source = Array.isArray(value) ? value : [];
-  const roles = source
-    .map((r) => String(r || '').trim().toLowerCase())
-    .filter((r) => ALLOWED_ROLES.includes(r));
-
-  return roles.length ? Array.from(new Set(roles)) : ['user'];
-}
 
 function toAuthUser(user) {
   const roles = Array.isArray(user.roles) ? user.roles : [];
@@ -32,12 +22,12 @@ function toAuthUser(user) {
   };
 }
 
-function signToken(userPayload) {
-  return jwt.sign(userPayload, JWT_SECRET, { expiresIn: '1d' });
+function signToken(userId) {
+  return jwt.sign({ sub: String(userId) }, JWT_SECRET, { expiresIn: '1d' });
 }
 
 exports.register = asyncHandler(async (req, res) => {
-  const { displayName, firstName, lastName, name, email, password, roles, groups } = req.body || {};
+  const { displayName, firstName, lastName, name, email, password } = req.body || {};
   const safeFirstName = String(firstName || '').trim();
   const safeLastName = String(lastName || '').trim();
   const safeDisplayName = String(displayName || name || `${safeFirstName} ${safeLastName}`).trim();
@@ -55,7 +45,7 @@ exports.register = asyncHandler(async (req, res) => {
     return res.status(409).json({ error: { message: 'Email already exists' } });
   }
 
-  const nextRoles = normalizeRoles(roles !== undefined ? roles : groups);
+  const nextRoles = ['user'];
   const hashedPassword = await bcrypt.hash(String(password), 10);
 
   const user = await prisma.user.create({
@@ -70,7 +60,7 @@ exports.register = asyncHandler(async (req, res) => {
   });
 
   const payload = toAuthUser(user);
-  const token = signToken(payload);
+  const token = signToken(user.userId);
 
   return res.status(201).json({ token, user: payload });
 });
@@ -144,7 +134,7 @@ exports.login = asyncHandler(async (req, res) => {
   });
 
   const payload = toAuthUser(user);
-  const token = signToken(payload);
+  const token = signToken(user.userId);
 
   return res.json({ token, user: payload });
 });
