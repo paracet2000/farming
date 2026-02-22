@@ -8,9 +8,11 @@ const logger = require('./lib/logger');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const groupRoutes = require('./routes/groups');
+const automationRoutes = require('./routes/automation');
 const standardResponse = require('./middleware/stdResponse');
 const requestLogger = require('./middleware/requestLogger');
 const errorHandler = require('./middleware/errorHandler');
+const { startAutomationRunner } = require('./services/automationRunner');
 
 const app = express();
 app.use(requestLogger);
@@ -20,6 +22,7 @@ app.use(standardResponse);
 app.use('/auth', authRoutes);
 app.use('/users', userRoutes);
 app.use('/groups', groupRoutes);
+app.use('/automation', automationRoutes);
 
 app.get('/', (req, res) => res.json({ ok: true, service: 'farming-api' }));
 
@@ -30,6 +33,7 @@ const port = process.env.PORT || 3000;
 
 async function start() {
   await connectDb();
+  startAutomationRunner();
   app.listen(port, () => logger.info({ port }, 'Server listening'));
 }
 

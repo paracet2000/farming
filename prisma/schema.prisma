@@ -12,6 +12,17 @@ enum UserStatus {
   INACTIVE
 }
 
+enum TriggerSource {
+  SCHEDULE
+  MANUAL
+}
+
+enum ExecutionStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
 model User {
   userId           String        @id @default(cuid())
   empcode          String?
@@ -61,4 +72,66 @@ model GroupMember {
 
   @@id([groupId, userId])
   @@index([userId])
+}
+
+model AutomationSchedule {
+  scheduleId    String                 @id @default(cuid())
+  scheduleName  String
+  action        Int                    @db.SmallInt
+  hour          Int
+  minute        Int
+  daysOfWeek    Int[]                  @default([0, 1, 2, 3, 4, 5, 6])
+  isActive      Boolean                @default(true)
+  createdBy     String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  devices       ScheduleHardware[]
+
+  @@index([isActive])
+  @@index([hour, minute])
+}
+
+model Device {
+  deviceId      String             @id @default(cuid())
+  deviceName    String
+  description   String             @default("")
+  isActive      Boolean            @default(true)
+  createdBy     String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  schedules     ScheduleHardware[]
+
+  @@index([deviceName])
+  @@index([isActive])
+  @@map("devices")
+}
+
+model ScheduleHardware {
+  scheduleId    String
+  deviceId      String
+  pinNumber     Int
+  duration      Int?
+  createdAt     DateTime           @default(now())
+  schedule      AutomationSchedule @relation(fields: [scheduleId], references: [scheduleId], onDelete: Cascade)
+  device        Device             @relation(fields: [deviceId], references: [deviceId], onDelete: Cascade)
+
+  @@id([scheduleId, deviceId, pinNumber])
+  @@index([deviceId])
+  @@map("schedule_hardware")
+}
+
+model AutomationExecutionLog {
+  executionId    String             @id @default(cuid())
+  scheduleId     String?
+  triggerSource  TriggerSource
+  status         ExecutionStatus
+  action         Int                @db.SmallInt
+  executionKey   String?            @unique
+  requestedBy    String?
+  startedAt      DateTime           @default(now())
+  finishedAt     DateTime?
+  resultMessage  String?
+
+  @@index([scheduleId, startedAt])
+  @@index([triggerSource, startedAt])
 }
