@@ -9,8 +9,7 @@ if (!JWT_SECRET) {
 function toAuthUser(user) {
   const roles = Array.isArray(user?.roles) ? user.roles : [];
   return {
-    id: user.userId,
-    _id: user.userId,
+    userId: user.userId,
     displayName: user.displayName,
     email: user.email,
     roles,
@@ -19,14 +18,23 @@ function toAuthUser(user) {
   };
 }
 
-async function authRequired(req, res, next) {
+function readBearerToken(req) {
   const h = req.headers.authorization;
-  if (!h || !h.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing token' });
-  const token = h.slice(7);
+  if (!h || !h.startsWith('Bearer ')) return null;
+  return h.slice(7);
+}
+
+async function authRequired(req, res, next) {
+  const token = readBearerToken(req);
+  if (!token) return res.status(401).json({ error: 'Missing token' });
 
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    const tokenUserId = String(payload?.sub || payload?.id || payload?._id || '');
+    if (payload?.type && payload.type !== 'user') {
+      return res.status(401).json({ error: 'Invalid token type' });
+    }
+
+    const tokenUserId = String(payload?.userId || '');
     if (!tokenUserId) {
       return res.status(401).json({ error: 'Invalid token' });
     }
@@ -47,7 +55,53 @@ async function authRequired(req, res, next) {
     }
 
     req.user = toAuthUser(user);
-    req.auth = { sub: user.userId };
+    req.auth = { type: 'user', userId: user.userId };
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+async function deviceAuthRequired(req, res, next) {
+  const token = readBearerToken(req);
+  if (!token) return res.status(401).json({ error: 'Missing token' });
+
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (payload?.type !== 'device') {
+      return res.status(401).json({ error: 'Invalid token type' });
+    }
+
+    const tokenDeviceId = String(payload?.deviceId || '');
+    if (!tokenDeviceId) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const device = await prisma.device.findUnique({
+      where: { deviceId: tokenDeviceId },
+      select: {
+        deviceId: true,
+        deviceName: true,
+        createdBy: true,
+        isActive: true
+      }
+    });
+
+    if (!device) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    if (!device.isActive) {
+      return res.status(403).json({ error: 'Device is inactive' });
+    }
+
+    req.device = {
+      deviceId: device.deviceId,
+      deviceName: device.deviceName,
+      createdBy: device.createdBy || null,
+      isActive: device.isActive
+    };
+    req.auth = { type: 'device', deviceId: device.deviceId };
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid token' });
@@ -64,4 +118,4 @@ function allowGroups(...groups) {
   };
 }
 
-module.exports = { authRequired, allowGroups, JWT_SECRET };
+module.exports = { authRequired, deviceAuthRequired, allowGroups, JWT_SECRET };

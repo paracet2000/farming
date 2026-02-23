@@ -9,6 +9,7 @@
     "dev": "nodemon src/index.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "seed:admin": "node scripts/seed-admin.js",
     "git:push": "node scripts/git-push.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -18,6 +19,7 @@
   "dependencies": {
     "@prisma/client": "^6.4.1",
     "bcryptjs": "^2.4.3",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.7",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.0",

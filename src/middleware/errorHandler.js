@@ -13,7 +13,7 @@ function errorHandler(err, req, res, next) {
       status,
       method: req?.method,
       url: req?.originalUrl,
-      userId: req?.user?.id || req?.user?._id || null
+      userId: req?.user?.userId || null
     },
     'Unhandled request error'
   );

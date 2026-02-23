@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const express = require('express');
+const cors = require('cors');
 const bodyParser = require('express').json;
 
 const connectDb = require('./db');
@@ -9,12 +10,16 @@ const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const groupRoutes = require('./routes/groups');
 const automationRoutes = require('./routes/automation');
+const deviceRoutes = require('./routes/devices');
+const deviceScheduleRoutes = require('./routes/device-schedule');
+const configRoutes = require('./routes/configs');
 const standardResponse = require('./middleware/stdResponse');
 const requestLogger = require('./middleware/requestLogger');
 const errorHandler = require('./middleware/errorHandler');
 const { startAutomationRunner } = require('./services/automationRunner');
 
 const app = express();
+app.use(cors());
 app.use(requestLogger);
 app.use(bodyParser());
 app.use(standardResponse);
@@ -23,6 +28,9 @@ app.use('/auth', authRoutes);
 app.use('/users', userRoutes);
 app.use('/groups', groupRoutes);
 app.use('/automation', automationRoutes);
+app.use('/devices', deviceRoutes);
+app.use('/map', deviceScheduleRoutes);
+app.use('/configs', configRoutes);
 
 app.get('/', (req, res) => res.json({ ok: true, service: 'farming-api' }));
 

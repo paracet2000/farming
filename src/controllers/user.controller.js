@@ -12,7 +12,7 @@ function normalizeRoles(value) {
 
 function userIdOf(authUser) {
   if (!authUser) return '';
-  return String(authUser.id || authUser._id || '');
+  return String(authUser.userId || '');
 }
 
 function isAdmin(authUser) {
@@ -24,7 +24,7 @@ function isAdmin(authUser) {
 function sanitizeUser(user) {
   if (!user) return null;
   return {
-    id: user.userId,
+    userId: user.userId,
     empcode: user.empcode,
     displayName: user.displayName,
     firstName: user.firstName,

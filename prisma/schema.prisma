@@ -23,6 +23,12 @@ enum ExecutionStatus {
   FAILED
 }
 
+enum BridgeValueType {
+  NUMBER @map("number")
+  TEXT   @map("text")
+  DATE   @map("date")
+}
+
 model User {
   userId           String        @id @default(cuid())
   empcode          String?
@@ -52,6 +58,7 @@ model User {
   @@index([displayName])
   @@index([lastName, firstName])
   @@index([nextLogin])
+  @@map("users")
 }
 
 model Group {
@@ -61,6 +68,8 @@ model Group {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   members     GroupMember[]
+
+  @@map("groups")
 }
 
 model GroupMember {
@@ -72,6 +81,7 @@ model GroupMember {
 
   @@id([groupId, userId])
   @@index([userId])
+  @@map("group_members")
 }
 
 model AutomationSchedule {
@@ -89,6 +99,7 @@ model AutomationSchedule {
 
   @@index([isActive])
   @@index([hour, minute])
+  @@map("automation_schedules")
 }
 
 model Device {
@@ -97,12 +108,14 @@ model Device {
   description   String             @default("")
   isActive      Boolean            @default(true)
   createdBy     String?
+  deviceSecretHash String?
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   schedules     ScheduleHardware[]
 
   @@index([deviceName])
   @@index([isActive])
+  @@index([createdBy])
   @@map("devices")
 }
 
@@ -134,4 +147,43 @@ model AutomationExecutionLog {
 
   @@index([scheduleId, startedAt])
   @@index([triggerSource, startedAt])
+  @@map("automation_execution_logs")
+}
+
+model ConfigType {
+  typCode         String         @id @map("typ_code")
+  typDescription  String         @default("") @map("typ_description")
+  details         ConfigDetail[]
+  bridges         CommonBridge[]
+
+  @@map("config_types")
+}
+
+model ConfigDetail {
+  typCode          String      @map("typ_code")
+  confCode         String      @map("conf_code")
+  confDescription  String      @default("") @map("conf_description")
+  confName         String      @map("conf_name")
+  confValue        String?     @map("conf_value")
+  configType       ConfigType  @relation(fields: [typCode], references: [typCode], onDelete: Cascade)
+
+  @@id([typCode, confCode])
+  @@index([typCode])
+  @@map("config_details")
+}
+
+model CommonBridge {
+  brdgGroupCode  String          @map("brdg_group_code")
+  leftCode       String          @map("left_code")
+  rightCode      String          @map("right_code")
+  brdgValue      String?         @map("brdg_value")
+  brdgType       BridgeValueType @default(TEXT) @map("brdg_type")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  configType     ConfigType      @relation(fields: [brdgGroupCode], references: [typCode], onDelete: Cascade)
+
+  @@id([brdgGroupCode, leftCode, rightCode])
+  @@index([leftCode])
+  @@index([rightCode])
+  @@map("common_bridges")
 }

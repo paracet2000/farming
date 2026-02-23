@@ -82,7 +82,11 @@ function scheduleDataFromBody(body, { partial }) {
 }
 
 function requesterIdOf(req) {
-  return String(req?.user?.id || req?.user?._id || '');
+  return String(req?.user?.userId || '');
+}
+
+function deviceIdOf(req) {
+  return String(req?.device?.deviceId || '');
 }
 
 function pollIntervalMs() {
@@ -309,6 +313,42 @@ exports.pollDeviceSchedules = asyncHandler(async (req, res) => {
   return res.json({
     deviceId: device.deviceId,
     deviceName: device.deviceName,
+    pollIntervalMs: pollIntervalMs(),
+    polledAt: new Date().toISOString(),
+    schedules
+  });
+});
+
+exports.pollMyDeviceSchedules = asyncHandler(async (req, res) => {
+  const deviceId = deviceIdOf(req);
+  if (!deviceId) {
+    return res.status(401).json({ error: { message: 'Unauthorized device' } });
+  }
+
+  const rows = await prisma.scheduleHardware.findMany({
+    where: {
+      deviceId,
+      schedule: {
+        isActive: true,
+        ...(req?.device?.createdBy ? { createdBy: req.device.createdBy } : {})
+      }
+    },
+    include: {
+      schedule: true
+    }
+  });
+
+  const schedules = rows
+    .map((item) => toDeviceSchedulePollResponse(item))
+    .sort((a, b) => {
+      if (a.hour !== b.hour) return a.hour - b.hour;
+      if (a.minute !== b.minute) return a.minute - b.minute;
+      return a.pinNumber - b.pinNumber;
+    });
+
+  return res.json({
+    deviceId: req.device.deviceId,
+    deviceName: req.device.deviceName,
     pollIntervalMs: pollIntervalMs(),
     polledAt: new Date().toISOString(),
     schedules

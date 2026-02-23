@@ -6,12 +6,12 @@ const { JWT_SECRET } = require('../middleware/auth');
 
 const BASE_LOGIN_FAIL_DELAY_MS = 5 * 1000;
 const MAX_LOGIN_FAIL_DELAY_MS = 24 * 60 * 60 * 1000;
+const DEVICE_TOKEN_TTL = process.env.DEVICE_TOKEN_TTL || '15m';
 
 function toAuthUser(user) {
   const roles = Array.isArray(user.roles) ? user.roles : [];
   return {
-    id: user.userId,
-    _id: user.userId,
+    userId: user.userId,
     displayName: user.displayName,
     firstName: user.firstName,
     lastName: user.lastName,
@@ -22,8 +22,12 @@ function toAuthUser(user) {
   };
 }
 
-function signToken(userId) {
-  return jwt.sign({ sub: String(userId) }, JWT_SECRET, { expiresIn: '1d' });
+function signUserToken(userId) {
+  return jwt.sign({ type: 'user', userId: String(userId) }, JWT_SECRET, { expiresIn: '1d' });
+}
+
+function signDeviceToken(deviceId) {
+  return jwt.sign({ type: 'device', deviceId: String(deviceId) }, JWT_SECRET, { expiresIn: DEVICE_TOKEN_TTL });
 }
 
 exports.register = asyncHandler(async (req, res) => {
@@ -60,7 +64,7 @@ exports.register = asyncHandler(async (req, res) => {
   });
 
   const payload = toAuthUser(user);
-  const token = signToken(user.userId);
+  const token = signUserToken(user.userId);
 
   return res.status(201).json({ token, user: payload });
 });
@@ -134,7 +138,50 @@ exports.login = asyncHandler(async (req, res) => {
   });
 
   const payload = toAuthUser(user);
-  const token = signToken(user.userId);
+  const token = signUserToken(user.userId);
 
   return res.json({ token, user: payload });
+});
+
+exports.deviceLogin = asyncHandler(async (req, res) => {
+  const { deviceId, deviceSecret } = req.body || {};
+  const safeDeviceId = String(deviceId || '').trim();
+
+  if (!safeDeviceId || !deviceSecret) {
+    return res.status(400).json({ error: { message: 'deviceId and deviceSecret are required' } });
+  }
+
+  const device = await prisma.device.findUnique({
+    where: { deviceId: safeDeviceId },
+    select: {
+      deviceId: true,
+      deviceName: true,
+      isActive: true,
+      deviceSecretHash: true
+    }
+  });
+
+  if (!device || !device.deviceSecretHash) {
+    return res.status(401).json({ error: { message: 'Invalid device credentials' } });
+  }
+
+  if (!device.isActive) {
+    return res.status(403).json({ error: { message: 'Device is inactive' } });
+  }
+
+  const ok = await bcrypt.compare(String(deviceSecret), device.deviceSecretHash);
+  if (!ok) {
+    return res.status(401).json({ error: { message: 'Invalid device credentials' } });
+  }
+
+  const token = signDeviceToken(device.deviceId);
+  return res.json({
+    token,
+    tokenType: 'Bearer',
+    expiresIn: DEVICE_TOKEN_TTL,
+    device: {
+      deviceId: device.deviceId,
+      deviceName: device.deviceName
+    }
+  });
 });

@@ -6,7 +6,7 @@ function normalizeGroupName(value) {
 }
 
 function getUserId(authUser) {
-  return String(authUser?.id || authUser?._id || '');
+  return String(authUser?.userId || '');
 }
 
 function isAdmin(authUser) {
