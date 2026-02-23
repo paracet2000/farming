@@ -31,7 +31,28 @@ $(document).ready(async function () {
     setInterval(applyLayer, 500);
   }
 
+  function applyDxDataGridGlobalDefaults() {
+    if (
+      !window.DevExpress ||
+      !window.DevExpress.ui ||
+      !window.DevExpress.ui.dxDataGrid ||
+      typeof window.DevExpress.ui.dxDataGrid.defaultOptions !== 'function'
+    ) {
+      return;
+    }
+
+    window.DevExpress.ui.dxDataGrid.defaultOptions({
+      options: {
+        paging: {
+          enabled: true,
+          pageSize: 25
+        }
+      }
+    });
+  }
+
   enforceDxLicenseLayer();
+  applyDxDataGridGlobalDefaults();
 
   function parseRoles(raw) {
     if (!raw) return [];
@@ -78,19 +99,19 @@ $(document).ready(async function () {
   const roleLevel = { guest: 0, user: 1, admin: 2 };
   const guestVisibleMenus = new Set(['register', 'login', 'logout']);
   const menuEmojiMap = {
-    register: '📝',
-    login: '🔐',
-    logout: '🚪',
-    users: '👥',
-    groups: '🧩',
-    role: '🛡️',
-    'assign role': '🛡️',
-    devices: '📟',
-    'device schedule': '⏱️',
-    automation: '🤖',
-    config: '⚙️',
-    configs: '⚙️',
-    map: '🗺️'
+    register: '\u{1F4DD}', // memo
+    login: '\u{1F510}', // lock with key
+    logout: '\u{1F6AA}', // door
+    users: '\u{1F465}', // users
+    groups: '\u{1F9E9}', // puzzle
+    role: '\u{1F6E1}\u{FE0F}', // shield
+    'assign role': '\u{1F6E1}\u{FE0F}', // shield
+    devices: '\u{1F4DF}', // pager
+    'device schedule': '\u{23F1}\u{FE0F}', // stopwatch
+    automation: '\u{1F916}', // robot
+    config: '\u{2699}\u{FE0F}', // gear
+    configs: '\u{2699}\u{FE0F}', // gear
+    map: '\u{1F5FA}\u{FE0F}' // map
   };
 
   function openPageArea() {
@@ -157,9 +178,10 @@ $(document).ready(async function () {
   function containsEmoji(value) {
     const safe = String(value || '');
     try {
-      return /\p{Extended_Pictographic}/u.test(safe);
+      const emojiRegex = new RegExp('\\p{Extended_Pictographic}', 'u');
+      return emojiRegex.test(safe);
     } catch (_) {
-      return /[\uD83C-\uDBFF\uDC00-\uDFFF]/.test(safe);
+      return /[\\uD800-\\uDBFF][\\uDC00-\\uDFFF]/.test(safe);
     }
   }
 

@@ -198,6 +198,24 @@ body.menu-page-active #menu-dock {
     color: var(--ink-muted);
 }
 
+.dx-datagrid .dx-datagrid-headers {
+    background: var(--accent-strong);
+}
+
+.dx-datagrid .dx-header-row > td {
+    background: var(--accent-strong);
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.dx-datagrid .dx-header-row > td .dx-datagrid-text-content,
+.dx-datagrid .dx-header-row > td .dx-sort,
+.dx-datagrid .dx-header-row > td .dx-sort-up,
+.dx-datagrid .dx-header-row > td .dx-sort-down,
+.dx-datagrid .dx-header-row > td .dx-column-indicators .dx-icon {
+    color: #ffffff;
+}
+
 .menu-cards {
     max-width: 980px;
     margin: 0 auto;

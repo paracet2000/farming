@@ -340,7 +340,7 @@
         repaintChangesOnly: true,
         rowAlternationEnabled: true,
         noDataText: 'No users',
-        paging: { enabled: true, pageSize: 15 },
+        paging: { enabled: true, pageSize: 25 },
         editing: {
           mode: 'form',
           allowAdding: false,

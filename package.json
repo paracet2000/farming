@@ -10,6 +10,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "seed:admin": "node scripts/seed-admin.js",
+    "seed:pin-def": "node scripts/seed-pin-def.js",
     "git:push": "node scripts/git-push.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

@@ -99,6 +99,9 @@ model AutomationSchedule {
 
   @@index([isActive])
   @@index([hour, minute])
+  @@index([createdBy])
+  @@index([createdBy, hour, minute, scheduleName])
+  @@index([createdBy, isActive, hour, minute, scheduleName])
   @@map("automation_schedules")
 }
 
@@ -116,6 +119,7 @@ model Device {
   @@index([deviceName])
   @@index([isActive])
   @@index([createdBy])
+  @@index([createdBy, createdAt])
   @@map("devices")
 }
 

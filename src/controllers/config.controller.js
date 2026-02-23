@@ -6,6 +6,15 @@ const { JWT_SECRET } = require('../middleware/auth');
 const GUEST_MENU_CODES = new Set(['mnu001', 'mnu_login', 'mnu_register', 'mnu_logout']);
 const GUEST_MENU_NAMES = new Set(['login', 'register', 'logout']);
 const GUEST_MENU_PATHS = new Set(['/login', '/register', '/logout']);
+const DEFAULT_PIN_DEF_CACHE_TTL_MS = 10 * 60 * 1000;
+const parsedPinDefTtl = Number(process.env.PIN_DEF_CACHE_TTL_MS);
+const PIN_DEF_CACHE_TTL_MS = Number.isFinite(parsedPinDefTtl) && parsedPinDefTtl >= 0
+  ? parsedPinDefTtl
+  : DEFAULT_PIN_DEF_CACHE_TTL_MS;
+const pinDefCache = {
+  items: null,
+  expiresAt: 0
+};
 
 function readBearerToken(req) {
   const h = req.headers.authorization;
@@ -41,6 +50,11 @@ function parseMenuMeta(confValue) {
   }
 
   return {};
+}
+
+function asBoolean(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
 }
 
 function toMenuResponse(item) {
@@ -97,4 +111,31 @@ exports.listMenu = asyncHandler(async (req, res) => {
     : rows;
 
   return res.json(visibleRows.map((item) => toMenuResponse(item)));
+});
+
+exports.listPinDefinitions = asyncHandler(async (req, res) => {
+  const bypassCache = asBoolean(req?.query?.refresh) || asBoolean(req?.query?.noCache);
+  const now = Date.now();
+  if (!bypassCache && Array.isArray(pinDefCache.items) && pinDefCache.expiresAt > now) {
+    res.set('X-Cache', 'HIT');
+    return res.json(pinDefCache.items);
+  }
+
+  const rows = await prisma.configDetail.findMany({
+    where: { typCode: 'PIN_DEF' },
+    orderBy: [{ confCode: 'asc' }]
+  });
+
+  const items = rows.map((item) => ({
+    typCode: item.typCode,
+    confCode: item.confCode,
+    confName: item.confName,
+    confDescription: item.confDescription || '',
+    confValue: item.confValue || ''
+  }));
+
+  pinDefCache.items = items;
+  pinDefCache.expiresAt = Date.now() + PIN_DEF_CACHE_TTL_MS;
+  res.set('X-Cache', bypassCache ? 'BYPASS' : 'MISS');
+  return res.json(items);
 });

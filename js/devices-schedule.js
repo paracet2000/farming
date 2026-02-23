@@ -1,7 +1,11 @@
 (function devicesSchedulePageModule(window, $) {
   'use strict';
 
-  var DAY_LABELS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  var DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var ACTION_OPTIONS = [
+    { value: 1, text: 'เปิด' },
+    { value: 0, text: 'ปิด' }
+  ];
 
   function normalizeList(value) {
     return Array.isArray(value) ? value : [];
@@ -83,12 +87,24 @@
 
     var devices = [];
     var schedules = [];
+    var pinDefinitions = [];
     var selectedDeviceId = '';
     var grdSchedule = null;
     var gridInstance = null;
     var selectInstance = null;
     var addPopupInstance = null;
     var addFormInstance = null;
+    var mappingStore = null;
+    var masterScheduleStore = null;
+    var isSyncingDeviceSelect = false;
+    var devicesLoadPromise = null;
+    var schedulesLoadPromise = null;
+    var pinDefinitionsLoadPromise = null;
+    var devicesLoaded = false;
+    var schedulesLoaded = false;
+    var pinDefinitionsLoaded = false;
+    var mappingCacheByDevice = Object.create(null);
+    var mappingLoadPromises = Object.create(null);
 
     function getErrorMessage(err, fallback) {
       if (typeof apiClient.getErrorMessage === 'function') {
@@ -111,6 +127,81 @@
       }
     }
 
+    function nowMs() {
+      if (window.performance && typeof window.performance.now === 'function') {
+        return window.performance.now();
+      }
+      return Date.now();
+    }
+
+    async function timedApiCall(method, path, callFn) {
+      var startedAt = nowMs();
+      try {
+        var result = await callFn();
+        var duration = (nowMs() - startedAt).toFixed(1);
+        console.info('[DevicesSchedule][API]', method, path, duration + 'ms');
+        return result;
+      } catch (err) {
+        var failDuration = (nowMs() - startedAt).toFixed(1);
+        console.warn('[DevicesSchedule][API]', method, path, failDuration + 'ms', getErrorMessage(err, 'Request failed'));
+        throw err;
+      }
+    }
+
+    function apiGet(path, options) {
+      return timedApiCall('GET', String(path || ''), function () {
+        return apiClient.get(path, options);
+      });
+    }
+
+    function apiPost(path, payload, options) {
+      return timedApiCall('POST', String(path || ''), function () {
+        return apiClient.post(path, payload, options);
+      });
+    }
+
+    function apiPatch(path, payload, options) {
+      return timedApiCall('PATCH', String(path || ''), function () {
+        return apiClient.patch(path, payload, options);
+      });
+    }
+
+    function updateMappingFormItems() {
+      if (!gridInstance) return;
+      gridInstance.option('editing.form.items', createScheduleEditingFormItems());
+    }
+
+    function upsertScheduleCache(item) {
+      var scheduleId = String(item && item.scheduleId ? item.scheduleId : '').trim();
+      if (!scheduleId) return;
+
+      var exists = false;
+      schedules = schedules.map(function (schedule) {
+        var safeId = String(schedule && schedule.scheduleId ? schedule.scheduleId : '').trim();
+        if (safeId !== scheduleId) return schedule;
+        exists = true;
+        return item;
+      });
+
+      if (!exists) {
+        schedules.push(item);
+      }
+    }
+
+    function reloadGridDataSource(grid) {
+      if (!grid) return Promise.resolve();
+      var ds = typeof grid.getDataSource === 'function' ? grid.getDataSource() : null;
+      if (ds && typeof ds.reload === 'function') {
+        return ds.reload();
+      }
+      return Promise.resolve(grid.refresh());
+    }
+
+    function clearMappingCache() {
+      mappingCacheByDevice = Object.create(null);
+      mappingLoadPromises = Object.create(null);
+    }
+
     function toGridRow(item) {
       var schedule = item && item.schedule ? item.schedule : null;
       var days = schedule && Array.isArray(schedule.daysOfWeek) ? schedule.daysOfWeek : [];
@@ -126,6 +217,37 @@
         scheduleDays: days,
         scheduleActive: schedule ? Boolean(schedule.isActive) : false
       };
+    }
+
+    function normalizePinDefinitions(rows) {
+      return normalizeList(rows)
+        .map(function (item) {
+          var pinNumber = Number(item && item.confValue);
+          if (!Number.isInteger(pinNumber)) return null;
+          var confDescription = String(item && item.confDescription ? item.confDescription : '').trim();
+          var confName = String(item && item.confName ? item.confName : '').trim();
+          return {
+            confCode: String(item && item.confCode ? item.confCode : '').trim(),
+            confName: confName,
+            confDescription: confDescription || confName || ('Pin ' + pinNumber),
+            pinNumber: pinNumber
+          };
+        })
+        .filter(function (item) { return item !== null; })
+        .sort(function (a, b) { return a.pinNumber - b.pinNumber; });
+    }
+
+    function toPinDisplay(item) {
+      return item && item.confDescription ? item.confDescription : '';
+    }
+
+    function pinTextByNumber(pinNumber) {
+      var safePin = Number(pinNumber);
+      var pinDef = pinDefinitions.find(function (item) {
+        return Number(item.pinNumber) === safePin;
+      });
+      if (pinDef && pinDef.confDescription) return pinDef.confDescription;
+      return String(pinNumber);
     }
 
     function toScheduleGridRow(item) {
@@ -205,6 +327,14 @@
       }).join(', ');
     }
 
+    function formatAction(value) {
+      var safeValue = Number(value);
+      var action = ACTION_OPTIONS.find(function (item) {
+        return Number(item.value) === safeValue;
+      });
+      return action ? action.text : String(value);
+    }
+
     function findScheduleById(scheduleId) {
       var safeId = String(scheduleId || '').trim();
       if (!safeId) return null;
@@ -240,9 +370,15 @@
         },
         {
           dataField: 'pinNumber',
-          editorType: 'dxNumberBox',
+          editorType: 'dxSelectBox',
           label: { text: 'Pin Number' },
-          editorOptions: { min: 0, showSpinButtons: true },
+          editorOptions: {
+            dataSource: pinDefinitions,
+            valueExpr: 'pinNumber',
+            displayExpr: toPinDisplay,
+            searchEnabled: true,
+            placeholder: 'Select pin'
+          },
           validationRules: [{ type: 'required', message: 'Pin Number is required' }]
         },
         {
@@ -270,7 +406,9 @@
 
       if (!devices.length) {
         selectedDeviceId = '';
+        isSyncingDeviceSelect = true;
         selectInstance.option('value', null);
+        isSyncingDeviceSelect = false;
         return;
       }
 
@@ -281,29 +419,157 @@
       if (!exists) {
         selectedDeviceId = String(devices[0].deviceId);
       }
+      isSyncingDeviceSelect = true;
       selectInstance.option('value', selectedDeviceId);
+      isSyncingDeviceSelect = false;
     }
 
-    async function loadDevices() {
-      var rows = await apiClient.get('/devices');
-      devices = normalizeList(rows);
-      setSelectDataSource();
-    }
+    function resolveSelectedDeviceId() {
+      if (!devices.length) {
+        selectedDeviceId = '';
+        return selectedDeviceId;
+      }
 
-    async function loadSchedules() {
-      var rows = await apiClient.get('/automation/schedules', {
-        query: { includeInactive: 'true' }
+      var exists = devices.some(function (d) {
+        return String(d.deviceId) === String(selectedDeviceId);
       });
-      schedules = normalizeList(rows);
 
-      if (gridInstance) {
-        gridInstance.option('editing.form.items', createScheduleEditingFormItems());
+      if (!exists) {
+        selectedDeviceId = String(devices[0].deviceId);
+      }
+      return selectedDeviceId;
+    }
+
+    async function loadDevices(options) {
+      var opts = options || {};
+      var force = Boolean(opts.force);
+      if (!force && devicesLoaded) {
+        resolveSelectedDeviceId();
+        setSelectDataSource();
+        return;
+      }
+      if (!force && devicesLoadPromise) return devicesLoadPromise;
+
+      var request = (async function () {
+        var rows = await apiGet('/devices');
+        devices = normalizeList(rows);
+        devicesLoaded = true;
+        resolveSelectedDeviceId();
+        setSelectDataSource();
+      })();
+
+      devicesLoadPromise = request;
+      try {
+        return await request;
+      } finally {
+        if (devicesLoadPromise === request) {
+          devicesLoadPromise = null;
+        }
       }
     }
 
-    function refreshScheduleGrid() {
+    async function loadSchedules(options) {
+      var opts = options || {};
+      var force = Boolean(opts.force);
+      if (!force && schedulesLoaded) return;
+      if (!force && schedulesLoadPromise) return schedulesLoadPromise;
+
+      var request = (async function () {
+        var rows = await apiGet('/automation/schedules', {
+          query: { includeInactive: 'true' }
+        });
+        schedules = normalizeList(rows);
+        schedulesLoaded = true;
+        updateMappingFormItems();
+      })();
+
+      schedulesLoadPromise = request;
+      try {
+        return await request;
+      } finally {
+        if (schedulesLoadPromise === request) {
+          schedulesLoadPromise = null;
+        }
+      }
+    }
+
+    async function loadPinDefinitions(options) {
+      var opts = options || {};
+      var force = Boolean(opts.force);
+      if (!force && pinDefinitionsLoaded) return;
+      if (!force && pinDefinitionsLoadPromise) return pinDefinitionsLoadPromise;
+
+      var request = (async function () {
+        var rows = await apiGet('/configs/pin-def');
+        pinDefinitions = normalizePinDefinitions(rows);
+        pinDefinitionsLoaded = true;
+        updateMappingFormItems();
+      })();
+
+      pinDefinitionsLoadPromise = request;
+      try {
+        return await request;
+      } finally {
+        if (pinDefinitionsLoadPromise === request) {
+          pinDefinitionsLoadPromise = null;
+        }
+      }
+    }
+
+    async function loadDeviceMappings(deviceId, options) {
+      var safeDeviceId = String(deviceId || '').trim();
+      if (!safeDeviceId) return [];
+
+      var opts = options || {};
+      var force = Boolean(opts.force);
+      if (!force && Object.prototype.hasOwnProperty.call(mappingCacheByDevice, safeDeviceId)) {
+        return mappingCacheByDevice[safeDeviceId];
+      }
+      if (!force && mappingLoadPromises[safeDeviceId]) {
+        return mappingLoadPromises[safeDeviceId];
+      }
+
+      var request = (async function () {
+        var rows = await apiGet('/map/' + encodeURIComponent(safeDeviceId) + '/schedule');
+        var mappedRows = normalizeList(rows).map(toGridRow);
+        mappingCacheByDevice[safeDeviceId] = mappedRows;
+        return mappedRows;
+      })();
+
+      mappingLoadPromises[safeDeviceId] = request;
+      try {
+        return await request;
+      } finally {
+        if (mappingLoadPromises[safeDeviceId] === request) {
+          delete mappingLoadPromises[safeDeviceId];
+        }
+      }
+    }
+
+    async function preloadPageData(options) {
+      var opts = options || {};
+      var force = Boolean(opts.force);
+
+      var devicesPromise = loadDevices({ force: force });
+      var schedulesPromise = loadSchedules({ force: force });
+      var pinDefinitionsPromise = loadPinDefinitions({ force: force });
+      var mappingsPromise = devicesPromise.then(function () {
+        var deviceId = resolveSelectedDeviceId();
+        if (!deviceId) return [];
+        return loadDeviceMappings(deviceId, { force: force });
+      });
+
+      await Promise.all([
+        devicesPromise,
+        schedulesPromise,
+        pinDefinitionsPromise,
+        mappingsPromise
+      ]);
+    }
+
+    async function refreshScheduleGrid() {
       if (!grdSchedule) return;
-      grdSchedule.refresh();
+      await reloadGridDataSource(grdSchedule);
     }
 
     function currentMasterScheduleStore() {
@@ -315,25 +581,31 @@
         },
         insert: async function (values) {
           var payload = buildSchedulePayload(values);
-          var created = await apiClient.post('/automation/schedules', payload);
+          var created = await apiPost('/automation/schedules', payload);
           showToast('Schedule created', 'success');
-          await loadSchedules();
-          refreshGrid();
+          upsertScheduleCache(created);
+          clearMappingCache();
+          updateMappingFormItems();
+          await refreshGrid();
           return toScheduleGridRow(created);
         },
         update: async function (key, values) {
           var payload = buildSchedulePayload(values);
-          var updated = await apiClient.patch('/automation/schedules/' + encodeURIComponent(String(key)), payload);
+          var updated = await apiPatch('/automation/schedules/' + encodeURIComponent(String(key)), payload);
           showToast('Schedule updated', 'success');
-          await loadSchedules();
-          refreshGrid();
+          upsertScheduleCache(updated);
+          clearMappingCache();
+          updateMappingFormItems();
+          await refreshGrid();
           return toScheduleGridRow(updated);
         },
         remove: async function (key) {
-          await apiClient.patch('/automation/schedules/' + encodeURIComponent(String(key)) + '/inactive', {});
+          var updated = await apiPatch('/automation/schedules/' + encodeURIComponent(String(key)) + '/inactive', {});
           showToast('Schedule inactive', 'success');
-          await loadSchedules();
-          refreshGrid();
+          upsertScheduleCache(updated);
+          clearMappingCache();
+          updateMappingFormItems();
+          await refreshGrid();
           return {};
         }
       });
@@ -344,8 +616,7 @@
         key: ['scheduleId', 'pinNumber'],
         load: async function () {
           if (!selectedDeviceId) return [];
-          var rows = await apiClient.get('/map/' + encodeURIComponent(selectedDeviceId) + '/schedule');
-          return normalizeList(rows).map(toGridRow);
+          return loadDeviceMappings(selectedDeviceId);
         },
         insert: async function (values) {
           if (!selectedDeviceId) throw new Error('Please select device');
@@ -356,7 +627,8 @@
           if (values.duration !== undefined && values.duration !== null && values.duration !== '') {
             payload.duration = Number(values.duration);
           }
-          var created = await apiClient.post('/map/' + encodeURIComponent(selectedDeviceId) + '/schedule', payload);
+          var created = await apiPost('/map/' + encodeURIComponent(selectedDeviceId) + '/schedule', payload);
+          delete mappingCacheByDevice[String(selectedDeviceId)];
           showToast('Mapping created', 'success');
           return toGridRow(created);
         },
@@ -372,7 +644,8 @@
           if (values.duration !== undefined && values.duration !== null && values.duration !== '') {
             payload.duration = Number(values.duration);
           }
-          var updated = await apiClient.patch('/map/' + encodeURIComponent(selectedDeviceId) + '/schedule', payload);
+          var updated = await apiPatch('/map/' + encodeURIComponent(selectedDeviceId) + '/schedule', payload);
+          delete mappingCacheByDevice[String(selectedDeviceId)];
           showToast('Mapping updated', 'success');
           return toGridRow(updated);
         },
@@ -382,11 +655,10 @@
       });
     }
 
-    function refreshGrid() {
+    async function refreshGrid() {
       if (!gridInstance) return;
       setFeedback('', '');
-      gridInstance.option('dataSource', currentScheduleStore());
-      gridInstance.refresh();
+      await reloadGridDataSource(gridInstance);
     }
 
     function createAddDevicePopup() {
@@ -467,18 +739,21 @@
                 if (safeSecret) payload.deviceSecret = safeSecret;
 
                 try {
-                  var created = await apiClient.post('/devices', payload);
+                  var created = await apiPost('/devices', payload);
                   showToast('Device created', 'success');
                   addPopupInstance.hide();
                   await loadDevices();
 
                   if (created && created.deviceId) {
                     selectedDeviceId = String(created.deviceId);
+                    mappingCacheByDevice[selectedDeviceId] = [];
                     if (selectInstance) {
+                      isSyncingDeviceSelect = true;
                       selectInstance.option('value', selectedDeviceId);
+                      isSyncingDeviceSelect = false;
                     }
                   }
-                  refreshGrid();
+                  await refreshGrid();
                 } catch (err) {
                   setFeedback(getErrorMessage(err, 'Create device failed'), 'error');
                 }
@@ -490,6 +765,9 @@
     }
 
     function initUi() {
+      mappingStore = currentScheduleStore();
+      masterScheduleStore = currentMasterScheduleStore();
+
       selectInstance = $deviceSelect.dxSelectBox({
         dataSource: [],
         valueExpr: 'deviceId',
@@ -497,10 +775,14 @@
         placeholder: 'Select device',
         searchEnabled: true,
         onValueChanged: function (e) {
+          if (isSyncingDeviceSelect) return;
           selectedDeviceId = e.value ? String(e.value) : '';
-          refreshGrid();
+          refreshGrid().catch(function (err) {
+            setFeedback(getErrorMessage(err, 'Refresh failed'), 'error');
+          });
         }
       }).dxSelectBox('instance');
+      setSelectDataSource();
 
       $addDeviceBtn.dxButton({
         text: 'Add Device',
@@ -517,9 +799,11 @@
         onClick: async function () {
           setFeedback('', '');
           try {
-            await Promise.all([loadDevices(), loadSchedules()]);
-            refreshScheduleGrid();
-            refreshGrid();
+            await preloadPageData({ force: true });
+            await Promise.all([
+              refreshScheduleGrid(),
+              refreshGrid()
+            ]);
           } catch (err) {
             setFeedback(getErrorMessage(err, 'Refresh failed'), 'error');
           }
@@ -527,12 +811,12 @@
       });
 
       gridInstance = $grid.dxDataGrid({
-        dataSource: currentScheduleStore(),
+        dataSource: mappingStore,
         showBorders: true,
         repaintChangesOnly: true,
         rowAlternationEnabled: true,
         noDataText: 'No schedule mapping for selected device',
-        paging: { enabled: true, pageSize: 10 },
+        paging: { enabled: true, pageSize: 25 },
         editing: {
           mode: 'form',
           allowAdding: true,
@@ -570,7 +854,16 @@
           {
             dataField: 'pinNumber',
             caption: 'Pin',
-            dataType: 'number'
+            dataType: 'number',
+            lookup: {
+              dataSource: function () { return pinDefinitions; },
+              valueExpr: 'pinNumber',
+              displayExpr: toPinDisplay
+            },
+            customizeText: function (cellInfo) {
+              if (cellInfo && cellInfo.valueText) return cellInfo.valueText;
+              return pinTextByNumber(cellInfo && cellInfo.value);
+            }
           },
           {
             dataField: 'duration',
@@ -580,7 +873,16 @@
           {
             caption: 'Action',
             dataField: 'scheduleAction',
-            allowEditing: false
+            allowEditing: false,
+            lookup: {
+              dataSource: ACTION_OPTIONS,
+              valueExpr: 'value',
+              displayExpr: 'text'
+            },
+            customizeText: function (cellInfo) {
+              if (cellInfo && cellInfo.valueText) return cellInfo.valueText;
+              return formatAction(cellInfo && cellInfo.value);
+            }
           },
           {
             caption: 'Time',
@@ -607,13 +909,13 @@
       }).dxDataGrid('instance');
 
       grdSchedule = $scheduleGrid.dxDataGrid({
-        dataSource: currentMasterScheduleStore(),
+        dataSource: masterScheduleStore,
         keyExpr: 'scheduleId',
         showBorders: true,
         repaintChangesOnly: true,
         rowAlternationEnabled: true,
         noDataText: 'No schedules',
-        paging: { enabled: true, pageSize: 10 },
+        paging: { enabled: true, pageSize: 25 },
         editing: {
           mode: 'form',
           allowAdding: true,
@@ -634,10 +936,7 @@
                 editorType: 'dxSelectBox',
                 label: { text: 'Action' },
                 editorOptions: {
-                  dataSource: [
-                    { value: 0, text: '0' },
-                    { value: 1, text: '1' }
-                  ],
+                  dataSource: ACTION_OPTIONS,
                   valueExpr: 'value',
                   displayExpr: 'text'
                 },
@@ -711,10 +1010,7 @@
             caption: 'Action',
             dataType: 'number',
             lookup: {
-              dataSource: [
-                { value: 0, text: '0' },
-                { value: 1, text: '1' }
-              ],
+              dataSource: ACTION_OPTIONS,
               valueExpr: 'value',
               displayExpr: 'text'
             }
@@ -760,11 +1056,9 @@
     }
 
     async function init() {
-      initUi();
       try {
-        await Promise.all([loadDevices(), loadSchedules()]);
-        refreshScheduleGrid();
-        refreshGrid();
+        await preloadPageData();
+        initUi();
       } catch (err) {
         setFeedback(getErrorMessage(err, 'Cannot initialize page'), 'error');
       }
