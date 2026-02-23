@@ -167,6 +167,37 @@ body.menu-page-active #menu-dock {
     color: #a12b2b;
 }
 
+.devices-page {
+    max-width: 980px;
+}
+
+.devices-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.devices-select {
+    flex: 1 1 360px;
+    min-width: 260px;
+}
+
+.schedule-grid {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.86);
+}
+
+.devices-grid-title {
+    margin: 10px 0 8px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink-muted);
+}
+
 .menu-cards {
     max-width: 980px;
     margin: 0 auto;
@@ -270,5 +301,14 @@ body.menu-page-active #menu-dock {
     .menu-cards {
         gap: 10px;
         grid-template-columns: 1fr;
+    }
+
+    .devices-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .devices-select {
+        min-width: 0;
     }
 }

@@ -185,3 +185,10 @@ exports.deviceLogin = asyncHandler(async (req, res) => {
     }
   });
 });
+
+exports.me = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ error: { message: 'Unauthorized' } });
+  }
+  return res.json(req.user);
+});

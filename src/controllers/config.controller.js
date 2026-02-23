@@ -56,7 +56,7 @@ function toMenuResponse(item) {
     confName: item.confName,
     confDescription: item.confDescription || '',
     confValue: item.confValue || null,
-    icon: String(meta.icon || item.confName || '?').charAt(0).toUpperCase(),
+    icon: meta.icon || item.confName || '?',
     openPath: meta.path || meta.route || item.confValue || '#',
     requiredRole
   };
