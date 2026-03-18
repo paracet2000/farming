@@ -5,7 +5,7 @@
     throw new Error('clientLib requires jQuery with $.ajax');
   }
 
-  var apiBase = normalizeBaseUrl(window.API_BASE || window.__API_BASE || 'http://localhost:3000');
+  var apiBase = normalizeBaseUrl(window.API_BASE || window.__API_BASE || window.location.origin);
 
   function normalizeBaseUrl(baseUrl) {
     return String(baseUrl || '').replace(/\/+$/, '');
