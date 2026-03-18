@@ -1,403 +1,414 @@
 #include <Arduino.h>
-#include <ArduinoJson.h>
-#include <ESP8266HTTPClient.h>
+#include <EEPROM.h>
+#include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
-#include <time.h>
-
-#include "device_config.h"
+#include <arduino-timer.h>
+#include <queue>
 
 namespace {
-constexpr uint8_t MANAGED_PINS[] = {5, 4, 14, 12};  // D1, D2, D5, D6
-constexpr size_t MANAGED_PIN_COUNT = sizeof(MANAGED_PINS) / sizeof(MANAGED_PINS[0]);
-constexpr unsigned long WIFI_RETRY_MS = 5000;
-constexpr unsigned long LOGIN_RETRY_MS = 5000;
-constexpr unsigned long CLOCK_RETRY_MS = 30000;
-constexpr unsigned long DEFAULT_POLL_INTERVAL_MS = 3000;
-constexpr time_t MIN_VALID_EPOCH = 1700000000;
-constexpr size_t EXEC_CACHE_SIZE = 32;
+constexpr char WIFI_SSID[] = "NOGLAK_2.4_EXT";
+constexpr char WIFI_PASSWORD[] = "0826165992";
+constexpr char AP_SSID[] = "Lovely-puppy";
+constexpr char AP_PASSWORD[] = "123456789";
+constexpr size_t EEPROM_SIZE = 512;
+constexpr int EEPROM_INTERVAL_ADDR = 1;
+constexpr int EEPROM_API_URL_ADDR = 10;
+constexpr size_t EEPROM_API_URL_MAX_LEN = 180;
+constexpr int EEPROM_DEVICE_ID_ADDR = 200;
+constexpr size_t EEPROM_DEVICE_ID_MAX_LEN = 48;
+constexpr int EEPROM_DEVICE_SECRET_ADDR = 248;
+constexpr size_t EEPROM_DEVICE_SECRET_MAX_LEN = 80;
+constexpr int EEPROM_DEVICE_LOGIN_URL_ADDR = 328;
+constexpr size_t EEPROM_DEVICE_LOGIN_URL_MAX_LEN = 180;
+std::queue<String> logQueue;
 
-struct PinRuntimeState {
-  uint8_t pin;
-  bool isOn;
-  bool pendingOff;
-  unsigned long offAtMs;
-};
+ESP8266WebServer server(80);
+auto pollTimer = timer_create_default();
 
-struct ExecCacheEntry {
-  String key;
-  unsigned long seenAtMs;
-};
-
-PinRuntimeState pinStates[MANAGED_PIN_COUNT];
-ExecCacheEntry execCache[EXEC_CACHE_SIZE];
-
-String deviceToken;
-unsigned long nextPollAtMs = 0;
 unsigned long lastWifiAttemptMs = 0;
-unsigned long lastClockAttemptMs = 0;
-unsigned long nextLoginAttemptMs = 0;
-unsigned long pollIntervalMs = DEFAULT_POLL_INTERVAL_MS;
+String apiUrl = "";
+unsigned long pollIntervalMs = 5000;
+String deviceToken = "";
+String deviceId = "device-001";
+String deviceSecret = "change-me";
+String deviceLoginUrl = "http://192.168.1.50:3000/auth/device/login";
 
-bool hasClockSync = false;
-
+void logging(bool push, const String& message="") {
+  
+  if (push) {
+    if (logQueue.size() >= 64) {
+      logQueue.pop();
+    }
+    logQueue.push(message);
+  } else {
+    while (!logQueue.empty()) {
+      logQueue.pop();
+    }
+  }
+}
 bool millisReached(unsigned long dueAt) {
   return static_cast<long>(millis() - dueAt) >= 0;
 }
 
-int pinIndex(int pinNumber) {
-  for (size_t i = 0; i < MANAGED_PIN_COUNT; i += 1) {
-    if (static_cast<int>(MANAGED_PINS[i]) == pinNumber) return static_cast<int>(i);
-  }
-  return -1;
-}
+String extractJsonStringField(const String& json, const char* fieldName) {
+  const String pattern = String("\"") + fieldName + "\":\"";
+  const int start = json.indexOf(pattern);
+  if (start < 0) return "";
 
-uint8_t levelFor(bool isOn) {
-#if DEVICE_ACTIVE_HIGH
-  return isOn ? HIGH : LOW;
-#else
-  return isOn ? LOW : HIGH;
-#endif
-}
+  const int valueStart = start + pattern.length();
+  const int valueEnd = json.indexOf('"', valueStart);
+  if (valueEnd < 0) return "";
 
-void setManagedPin(int pinNumber, bool turnOn) {
-  const int idx = pinIndex(pinNumber);
-  if (idx < 0) return;
-
-  digitalWrite(static_cast<uint8_t>(pinNumber), levelFor(turnOn));
-  pinStates[idx].isOn = turnOn;
-  if (!turnOn) {
-    pinStates[idx].pendingOff = false;
-  }
-}
-
-void schedulePinOff(int pinNumber, int durationSec) {
-  if (durationSec <= 0) return;
-
-  const int idx = pinIndex(pinNumber);
-  if (idx < 0) return;
-
-  pinStates[idx].pendingOff = true;
-  pinStates[idx].offAtMs = millis() + (static_cast<unsigned long>(durationSec) * 1000UL);
-}
-
-void processPendingPinOff() {
-  for (size_t i = 0; i < MANAGED_PIN_COUNT; i += 1) {
-    if (!pinStates[i].pendingOff) continue;
-    if (!millisReached(pinStates[i].offAtMs)) continue;
-
-    setManagedPin(pinStates[i].pin, false);
-    Serial.printf("[PIN] Auto OFF pin=%u\n", pinStates[i].pin);
-  }
-}
-
-String normalizedBaseUrl() {
-  String base = String(DEVICE_API_BASE_URL);
-  base.trim();
-  while (base.endsWith("/")) {
-    base.remove(base.length() - 1);
-  }
-  return base;
-}
-
-String apiUrl(const char* path) {
-  return normalizedBaseUrl() + String(path);
-}
-
-bool httpPostJson(const char* path, const String& requestBody, const String& bearerToken, int& statusCode, String& responseBody) {
-  WiFiClient client;
-  HTTPClient http;
-  if (!http.begin(client, apiUrl(path))) {
-    Serial.printf("[HTTP] begin failed for POST %s\n", path);
-    return false;
-  }
-
-  http.setTimeout(7000);
-  http.addHeader("Content-Type", "application/json");
-  if (bearerToken.length() > 0) {
-    http.addHeader("Authorization", "Bearer " + bearerToken);
-  }
-
-  statusCode = http.POST(requestBody);
-  if (statusCode > 0) {
-    responseBody = http.getString();
-  } else {
-    responseBody = "";
-  }
-  http.end();
-  return true;
-}
-
-bool httpGetJson(const char* path, const String& bearerToken, int& statusCode, String& responseBody) {
-  WiFiClient client;
-  HTTPClient http;
-  if (!http.begin(client, apiUrl(path))) {
-    Serial.printf("[HTTP] begin failed for GET %s\n", path);
-    return false;
-  }
-
-  http.setTimeout(7000);
-  if (bearerToken.length() > 0) {
-    http.addHeader("Authorization", "Bearer " + bearerToken);
-  }
-
-  statusCode = http.GET();
-  if (statusCode > 0) {
-    responseBody = http.getString();
-  } else {
-    responseBody = "";
-  }
-  http.end();
-  return true;
-}
-
-void connectWifiIfNeeded() {
-  if (WiFi.status() == WL_CONNECTED) return;
-  if (lastWifiAttemptMs != 0 && !millisReached(lastWifiAttemptMs + WIFI_RETRY_MS)) return;
-
-  lastWifiAttemptMs = millis();
-  Serial.printf("[WiFi] Connecting to %s\n", DEVICE_WIFI_SSID);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(DEVICE_WIFI_SSID, DEVICE_WIFI_PASSWORD);
-
-  unsigned long startedAt = millis();
-  while (WiFi.status() != WL_CONNECTED && !millisReached(startedAt + 10000)) {
-    delay(200);
-    yield();
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("[WiFi] Connected. IP=%s\n", WiFi.localIP().toString().c_str());
-  } else {
-    Serial.println("[WiFi] Connect timeout");
-  }
-}
-
-void syncClockIfNeeded() {
-  if (hasClockSync) return;
-  if (WiFi.status() != WL_CONNECTED) return;
-  if (lastClockAttemptMs != 0 && !millisReached(lastClockAttemptMs + CLOCK_RETRY_MS)) return;
-
-  lastClockAttemptMs = millis();
-
-  configTime(DEVICE_TZ_INFO, "pool.ntp.org", "time.nist.gov");
-  Serial.println("[NTP] Syncing clock...");
-
-  const unsigned long startedAt = millis();
-  while (!millisReached(startedAt + 12000)) {
-    const time_t now = time(nullptr);
-    if (now >= MIN_VALID_EPOCH) {
-      hasClockSync = true;
-      Serial.printf("[NTP] Synced. epoch=%ld\n", static_cast<long>(now));
-      return;
-    }
-    delay(200);
-    yield();
-  }
-
-  Serial.println("[NTP] Sync timeout");
-}
-
-bool executionAlreadyProcessed(const String& key) {
-  for (size_t i = 0; i < EXEC_CACHE_SIZE; i += 1) {
-    if (execCache[i].key == key) {
-      return true;
-    }
-  }
-  return false;
-}
-
-void rememberExecutionKey(const String& key) {
-  size_t slot = 0;
-  bool foundEmpty = false;
-  unsigned long oldestSeenAt = ULONG_MAX;
-
-  for (size_t i = 0; i < EXEC_CACHE_SIZE; i += 1) {
-    if (execCache[i].key.length() == 0) {
-      slot = i;
-      foundEmpty = true;
-      break;
-    }
-    if (execCache[i].seenAtMs < oldestSeenAt) {
-      oldestSeenAt = execCache[i].seenAtMs;
-      slot = i;
-    }
-  }
-
-  if (!foundEmpty) {
-    execCache[slot].key = "";
-  }
-
-  execCache[slot].key = key;
-  execCache[slot].seenAtMs = millis();
-}
-
-bool shouldRunByDay(JsonVariantConst daysOfWeek, int currentWeekday) {
-  if (!daysOfWeek.is<JsonArrayConst>()) return true;
-
-  JsonArrayConst arr = daysOfWeek.as<JsonArrayConst>();
-  if (arr.size() == 0) return true;
-
-  for (JsonVariantConst item : arr) {
-    if (item.as<int>() == currentWeekday) return true;
-  }
-  return false;
-}
-
-String buildExecutionKey(JsonObjectConst schedule, const tm& now) {
-  const char* scheduleId = schedule["scheduleId"] | "";
-  const int pin = schedule["pinNumber"] | -1;
-
-  char key[96];
-  snprintf(
-    key,
-    sizeof(key),
-    "%s|%d|%04d%02d%02d%02d%02d",
-    scheduleId,
-    pin,
-    now.tm_year + 1900,
-    now.tm_mon + 1,
-    now.tm_mday,
-    now.tm_hour,
-    now.tm_min
-  );
-  return String(key);
-}
-
-void applyScheduleIfDue(JsonObjectConst schedule, const tm& now) {
-  const int pinNumber = schedule["pinNumber"] | -1;
-  const int action = schedule["action"] | -1;
-  const int hour = schedule["hour"] | -1;
-  const int minute = schedule["minute"] | -1;
-  const bool isActive = schedule["isActive"] | false;
-
-  if (!isActive) return;
-  if (pinIndex(pinNumber) < 0) return;
-  if (hour != now.tm_hour || minute != now.tm_min) return;
-  if (!shouldRunByDay(schedule["daysOfWeek"], now.tm_wday)) return;
-
-  const String key = buildExecutionKey(schedule, now);
-  if (executionAlreadyProcessed(key)) return;
-  rememberExecutionKey(key);
-
-  if (action == 0) {
-    setManagedPin(pinNumber, false);
-    Serial.printf("[RUN] OFF pin=%d\n", pinNumber);
-    return;
-  }
-
-  if (action == 1) {
-    const int duration = schedule["duration"] | 0;
-    if (duration <= 0) {
-      Serial.printf("[RUN] Skip action=1 pin=%d because duration is missing\n", pinNumber);
-      return;
-    }
-    setManagedPin(pinNumber, true);
-    Serial.printf("[RUN] ON pin=%d duration=%d\n", pinNumber, duration);
-    schedulePinOff(pinNumber, duration);
-    return;
-  }
-
-  Serial.printf("[RUN] Unknown action=%d pin=%d\n", action, pinNumber);
+  return json.substring(valueStart, valueEnd);
 }
 
 bool deviceLogin() {
   if (WiFi.status() != WL_CONNECTED) return false;
+  if (deviceLoginUrl.length() == 0) return false;
+  if (deviceId.length() == 0 || deviceSecret.length() == 0) return false;
 
-  DynamicJsonDocument req(256);
-  req["deviceId"] = DEVICE_ID;
-  req["deviceSecret"] = DEVICE_SECRET;
-
-  String body;
-  serializeJson(req, body);
-
-  int statusCode = 0;
-  String responseBody;
-  if (!httpPostJson("/auth/device/login", body, "", statusCode, responseBody)) {
+  WiFiClient client;
+  HTTPClient http;
+  if (!http.begin(client, deviceLoginUrl)) {
+    logging(true, "Error: HTTP begin failed");
     return false;
   }
 
-  if (statusCode != 200) {
-    Serial.printf("[AUTH] Login failed status=%d body=%s\n", statusCode, responseBody.c_str());
+  http.addHeader("Content-Type", "application/json");
+  const String body = String("{\"deviceId\":\"") + deviceId + "\",\"deviceSecret\":\"" + deviceSecret + "\"}";
+  const int httpCode = http.POST(body);
+  if (httpCode != HTTP_CODE_OK) {    
+    logging(true, "Error: HTTP POST failed with code " + String(httpCode));
+    http.end();
     return false;
   }
 
-  DynamicJsonDocument res(2048);
-  const DeserializationError err = deserializeJson(res, responseBody);
-  if (err) {
-    Serial.printf("[AUTH] Invalid JSON: %s\n", err.c_str());
+  const String response = http.getString();
+  http.end();
+
+  const String token = extractJsonStringField(response, "token");
+  if (token.length() == 0) {
+    logging(true, "[AUTH] token missing");
     return false;
   }
 
-  const char* token = res["token"] | "";
-  if (token[0] == '\0') {
-    Serial.println("[AUTH] Token missing");
-    return false;
-  }
-
-  deviceToken = String(token);
-  Serial.println("[AUTH] Login success");
+  deviceToken = token;
+  logging(true, "[AUTH] login success");
   return true;
 }
 
-bool pollSchedulesAndRun() {
-  if (WiFi.status() != WL_CONNECTED) return false;
-  if (deviceToken.length() == 0) return false;
-
-  int statusCode = 0;
-  String responseBody;
-  if (!httpGetJson("/automation/device/schedules/poll", deviceToken, statusCode, responseBody)) {
-    return false;
+bool pollTheApi(void *) {
+  if (deviceToken.length() == 0) {
+    if (!deviceLogin()) {
+      logging(true, "[POLL] Device login failed, will retry");
+      return true;
+    }
   }
-
-  if (statusCode == 401) {
-    Serial.println("[POLL] Unauthorized, token cleared");
-    deviceToken = "";
-    return false;
+  if (WiFi.status() != WL_CONNECTED) {
+    logging(true, "[POLL] Wi-Fi not connected, skipping poll");
+    return true;
   }
-
-  if (statusCode != 200) {
-    Serial.printf("[POLL] Failed status=%d body=%s\n", statusCode, responseBody.c_str());
-    return false;
-  }
-
-  DynamicJsonDocument res(16384);
-  const DeserializationError err = deserializeJson(res, responseBody);
-  if (err) {
-    Serial.printf("[POLL] Invalid JSON: %s\n", err.c_str());
-    return false;
-  }
-
-  const int nextInterval = res["pollIntervalMs"] | static_cast<int>(DEFAULT_POLL_INTERVAL_MS);
-  pollIntervalMs = static_cast<unsigned long>(
-    constrain(nextInterval, DEVICE_MIN_POLL_INTERVAL_MS, DEVICE_MAX_POLL_INTERVAL_MS)
-  );
-
-  const time_t epochNow = time(nullptr);
-  if (epochNow < MIN_VALID_EPOCH) {
-    Serial.println("[POLL] Clock not synced, skip schedule run");
+  if (apiUrl.length() == 0) {
+    logging(true, "[POLL] API URL is not set, skipping poll");
     return true;
   }
 
-  tm nowLocal = {};
-  localtime_r(&epochNow, &nowLocal);
-
-  JsonArrayConst schedules = res["schedules"].as<JsonArrayConst>();
-  for (JsonObjectConst item : schedules) {
-    applyScheduleIfDue(item, nowLocal);
+  Serial.printf("[POLL] %s\n", apiUrl.c_str());
+  WiFiClient client;
+  HTTPClient http;
+  if (!http.begin(client, apiUrl)) {
+    logging(true, "[POLL] Error: HTTP begin failed");
+    return true;
   }
-
+  http.addHeader("Authorization", "Bearer " + deviceToken);
+  const int httpCode = http.GET();
+  if (httpCode > 0) {
+    Serial.printf("[POLL] Response code: %d\n", httpCode);
+    if (httpCode == HTTP_CODE_OK) {
+      String payload = http.getString();
+      Serial.printf("[POLL] Payload: %s\n", payload.c_str());
+      logging(true, "Success: " + payload);
+    }
+  } else {
+    Serial.printf("[POLL] GET failed, error: %s\n", http.errorToString(httpCode).c_str());
+    logging(true, "Error: " + http.errorToString(httpCode));
+  }
+  http.end();
   return true;
 }
 
-void setupPins() {
-  for (size_t i = 0; i < MANAGED_PIN_COUNT; i += 1) {
-    const uint8_t pin = MANAGED_PINS[i];
-    pinMode(pin, OUTPUT);
-    digitalWrite(pin, levelFor(false));
-    pinStates[i] = {pin, false, false, 0};
+String htmlEscape(const String& input) {
+  String out;
+  out.reserve(input.length() + 16);
+
+  for (size_t i = 0; i < input.length(); i += 1) {
+    const char c = input[i];
+    switch (c) {
+      case '&':
+        out += "&amp;";
+        break;
+      case '<':
+        out += "&lt;";
+        break;
+      case '>':
+        out += "&gt;";
+        break;
+      case '"':
+        out += "&quot;";
+        break;
+      case '\'':
+        out += "&#39;";
+        break;
+      default:
+        out += c;
+        break;
+    }
   }
-  Serial.println("[PIN] Initialized pins: 5,4,14,12");
+
+  return out;
+}
+
+String readStringFromEeprom(int addr, size_t maxLen) {
+  String value;
+  value.reserve(maxLen);
+
+  for (size_t i = 0; i < (maxLen - 1); i += 1) {
+    const uint8_t b = EEPROM.read(addr + static_cast<int>(i));
+    if (b == 0x00 || b == 0xFF) break;
+    value += static_cast<char>(b);
+  }
+  value.trim();
+  return value;
+}
+
+void writeStringToEeprom(int addr, size_t maxLen, const String& value) {
+  const size_t copyLen = min(value.length(), maxLen - 1);
+  for (size_t i = 0; i < maxLen; i += 1) {
+    const uint8_t b = (i < copyLen) ? static_cast<uint8_t>(value[i]) : 0;
+    EEPROM.write(addr + static_cast<int>(i), b);
+  }
+}
+
+String buildLogText() {
+  if (logQueue.empty()) return "";
+
+  std::queue<String> snapshot = logQueue;
+  String text;
+  text.reserve(snapshot.size() * 40);
+
+  while (!snapshot.empty()) {
+    text += snapshot.front();
+    snapshot.pop();
+    if (!snapshot.empty()) text += '\n';
+  }
+
+  return text;
+}
+
+void setupAccessPoint() {
+  if (!WiFi.softAP(AP_SSID, AP_PASSWORD)) {
+    Serial.println("[AP] Failed to start");
+    return;
+  }
+  Serial.printf("[AP] Started. SSID=%s IP=%s\n", AP_SSID, WiFi.softAPIP().toString().c_str());
+}
+
+void connectWifiIfNeeded() {
+  if (WiFi.status() == WL_CONNECTED) return;
+  if (lastWifiAttemptMs != 0 && !millisReached(lastWifiAttemptMs + 5000)) return;
+
+  lastWifiAttemptMs = millis();
+  const String wifiLog = String("[WiFi] Connecting to ") + WIFI_SSID;
+  Serial.println(wifiLog);
+  logging(true, wifiLog);
+
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  const unsigned long startedAt = millis();
+  while (WiFi.status() != WL_CONNECTED && !millisReached(startedAt + 10000)) {
+    delay(500);
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    const String successLog = String("[WiFi] Connected. IP=") + WiFi.localIP().toString();
+    Serial.println(successLog);
+    logging(true, successLog);
+  } else {
+    Serial.println("[WiFi] Connect timeout");
+    logging(true, "[WiFi] Connect timeout");
+  }
+}
+
+const char HTML_TEMPLATE[] PROGMEM = R"raw(
+<!doctype html>
+<html>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>ESP8266 WebServer</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 16px; background: #f7f8fb; color: #111; }
+    .card { max-width: 640px; background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 16px; }
+    h1 { margin-top: 0; }
+    label { display: block; margin-top: 12px; }
+    input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #bbb; border-radius: 8px; }
+    textarea { width: 100%; height: 220px; box-sizing: border-box; border: 1px solid #bbb; border-radius: 8px; padding: 8px; overflow: auto; white-space: pre; font-family: Consolas, monospace; }
+    button { margin-top: 12px; padding: 9px 12px; border: 0; background: #1f6feb; color: #fff; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <div class='card'>
+    <h1>ESP8266 WebServer</h1>
+    <form method='post' action='/config'>
+      <label for='apiUrl'>API URL</label>
+      <input id='apiUrl' name='apiUrl' type='text' value='{{API_URL}}' placeholder='http://192.168.1.50:3000/ping'>
+      <label for='interval'>Interval (ms)</label>
+      <input id='interval' name='interval' type='number' min='100' value='{{INTERVAL}}'>
+      <label for='deviceId'>DEVICE_ID</label>
+      <input id='deviceId' name='deviceId' type='text' value='{{DEVICE_ID}}'>
+      <label for='deviceSecret'>DEVICE_SECRET</label>
+      <input id='deviceSecret' name='deviceSecret' type='password' value='{{DEVICE_SECRET}}'>
+      <label for='deviceLoginUrl'>DEVICE_LOGIN_URL</label>
+      <input id='deviceLoginUrl' name='deviceLoginUrl' type='text' value='{{DEVICE_LOGIN_URL}}' placeholder='http://192.168.1.50:3000/auth/device/login'>
+      <button type='submit'>Submit</button>
+    </form>
+    <div style='display:flex;justify-content:space-between;align-items:center;margin-top:12px;'>
+      <label style='margin-top:0' for='logs'>Logs</label>
+      <button onclick='clearLogs()' style='margin-top:0;background:#6c757d;padding:6px 12px;'>Clear</button>
+    </div>
+    <textarea id='logs' readonly wrap='off'>{{LOGS}}</textarea>
+    <script>
+      const ta = document.getElementById('logs');
+      ta.scrollTop = ta.scrollHeight;
+      async function clearLogs() {        
+        await fetch('/logs', { method: 'DELETE' });
+        ta.value = '';        
+      }
+      setInterval(async () => {
+        try {
+          const res = await fetch('/logs');
+          if (res.ok) {
+            const txt = await res.text();
+            console.log(txt);
+            if (ta.value !== txt) {
+              ta.value = txt;
+              ta.scrollTop = ta.scrollHeight;
+            }
+          }
+        } catch (e) {
+          console.error('Failed to fetch logs:', e);
+        }
+      }, 5000);
+    </script>
+  </div>
+</body>
+</html>
+)raw";
+
+String buildHomePage() {
+  String html = HTML_TEMPLATE;
+  html.replace("{{API_URL}}", htmlEscape(apiUrl));
+  html.replace("{{INTERVAL}}", String(pollIntervalMs));
+  html.replace("{{DEVICE_ID}}", htmlEscape(deviceId));
+  html.replace("{{DEVICE_SECRET}}", htmlEscape(deviceSecret));
+  html.replace("{{DEVICE_LOGIN_URL}}", htmlEscape(deviceLoginUrl));
+  html.replace("{{LOGS}}", htmlEscape(buildLogText()));
+  return html;
+}
+
+void handleRoot() {
+  server.send(200, "text/html; charset=utf-8", buildHomePage());
+}
+
+void handleLogs() {
+  // Endpoint นี้จะคืนค่า Log ทั้งหมดเป็น plain text
+  server.send(200, "text/plain", buildLogText());
+}
+
+void handleClearLogs() {
+  logging(false); // false = clear queue
+  server.send(200, "text/plain", "Cleared");
+}
+
+void loadConfigFromEeprom() {
+  uint32_t storedInterval = 0;
+  EEPROM.get(EEPROM_INTERVAL_ADDR, storedInterval);
+  if (storedInterval > 0) {
+    pollIntervalMs = static_cast<unsigned long>(storedInterval);
+  }
+
+  const String storedApiUrl = readStringFromEeprom(EEPROM_API_URL_ADDR, EEPROM_API_URL_MAX_LEN);
+  const String storedDeviceId = readStringFromEeprom(EEPROM_DEVICE_ID_ADDR, EEPROM_DEVICE_ID_MAX_LEN);
+  const String storedDeviceSecret = readStringFromEeprom(EEPROM_DEVICE_SECRET_ADDR, EEPROM_DEVICE_SECRET_MAX_LEN);
+  const String storedDeviceLoginUrl = readStringFromEeprom(EEPROM_DEVICE_LOGIN_URL_ADDR, EEPROM_DEVICE_LOGIN_URL_MAX_LEN);
+
+  if (storedApiUrl.length() > 0) apiUrl = storedApiUrl;
+  if (storedDeviceId.length() > 0) deviceId = storedDeviceId;
+  if (storedDeviceSecret.length() > 0) deviceSecret = storedDeviceSecret;
+  if (storedDeviceLoginUrl.length() > 0) deviceLoginUrl = storedDeviceLoginUrl;
+
+  Serial.printf(
+    "[CFG] loaded apiUrl=%s interval=%lu deviceId=%s loginUrl=%s\n",
+    apiUrl.c_str(),
+    pollIntervalMs,
+    deviceId.c_str(),
+    deviceLoginUrl.c_str()
+  );
+}
+
+void handleConfigSave() {
+  String newUrl = server.arg("apiUrl");
+  String intervalArg = server.arg("interval");
+  String newDeviceId = server.arg("deviceId");
+  String newDeviceSecret = server.arg("deviceSecret");
+  String newDeviceLoginUrl = server.arg("deviceLoginUrl");
+  newUrl.trim();
+  intervalArg.trim();
+  newDeviceId.trim();
+  newDeviceSecret.trim();
+  newDeviceLoginUrl.trim();
+
+  const unsigned long parsedInterval = static_cast<unsigned long>(intervalArg.toInt());
+  if (parsedInterval > 0) {
+    pollIntervalMs = parsedInterval;
+  }
+  apiUrl = newUrl;
+  deviceId = newDeviceId;
+  deviceSecret = newDeviceSecret;
+  deviceLoginUrl = newDeviceLoginUrl;
+
+  const uint32_t intervalToStore = static_cast<uint32_t>(pollIntervalMs);
+  EEPROM.put(EEPROM_INTERVAL_ADDR, intervalToStore);
+  writeStringToEeprom(EEPROM_API_URL_ADDR, EEPROM_API_URL_MAX_LEN, apiUrl);
+  writeStringToEeprom(EEPROM_DEVICE_ID_ADDR, EEPROM_DEVICE_ID_MAX_LEN, deviceId);
+  writeStringToEeprom(EEPROM_DEVICE_SECRET_ADDR, EEPROM_DEVICE_SECRET_MAX_LEN, deviceSecret);
+  writeStringToEeprom(EEPROM_DEVICE_LOGIN_URL_ADDR, EEPROM_DEVICE_LOGIN_URL_MAX_LEN, deviceLoginUrl);
+  EEPROM.commit();
+  pollTimer = timer_create_default();
+  pollTimer.every(pollIntervalMs, pollTheApi);
+
+  Serial.printf(
+    "[CFG] apiUrl=%s interval=%lu deviceId=%s loginUrl=%s\n",
+    apiUrl.c_str(),
+    pollIntervalMs,
+    deviceId.c_str(),
+    deviceLoginUrl.c_str()
+  );
+  server.sendHeader("Location", "/");
+  server.send(303, "text/plain", "Saved");
+}
+
+void setupWebServer() {
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/config", HTTP_POST, handleConfigSave);
+  server.on("/logs", HTTP_GET, handleLogs);
+  server.on("/logs", HTTP_DELETE, handleClearLogs);
+  server.onNotFound([]() { server.send(404, "text/plain", "Not found"); });
+  server.begin();
+  Serial.println("[HTTP] Server started on port 80");
 }
 }  // namespace
 
@@ -405,42 +416,20 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.println();
-  Serial.println("[BOOT] ESP8266 device controller start");
+  Serial.println("[BOOT] ESP8266 Wi-Fi connect only");
 
-  setupPins();
+  EEPROM.begin(EEPROM_SIZE);
+  loadConfigFromEeprom();
+  WiFi.mode(WIFI_AP_STA);
+  setupAccessPoint();
   connectWifiIfNeeded();
-  syncClockIfNeeded();
+  pollTimer.every(pollIntervalMs, pollTheApi);
+  setupWebServer();
 }
 
 void loop() {
   connectWifiIfNeeded();
-  syncClockIfNeeded();
-  processPendingPinOff();
-
-  if (WiFi.status() != WL_CONNECTED) {
-    delay(50);
-    return;
-  }
-
-  if (deviceToken.length() == 0) {
-    if (millisReached(nextLoginAttemptMs)) {
-      if (deviceLogin()) {
-        nextPollAtMs = 0;
-      } else {
-        nextLoginAttemptMs = millis() + LOGIN_RETRY_MS;
-      }
-    }
-    delay(20);
-    return;
-  }
-
-  if (millisReached(nextPollAtMs)) {
-    const bool ok = pollSchedulesAndRun();
-    if (!ok && deviceToken.length() == 0) {
-      nextLoginAttemptMs = millis() + LOGIN_RETRY_MS;
-    }
-    nextPollAtMs = millis() + pollIntervalMs;
-  }
-
+  pollTimer.tick();  
+  server.handleClient();
   delay(20);
 }

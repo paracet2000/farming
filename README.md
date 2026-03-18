@@ -11,6 +11,8 @@ Basic endpoints:
 - GET `/groups` (authenticated)
 - POST `/groups` {name,description}
 - POST `/groups/:name/users` {userId}
+- GET `/devices/:deviceId/schedules` (authenticated)
+- GET `/devices/me/tasks` (device authenticated)
 
 Run:
 
@@ -19,4 +21,7 @@ cd f:\Web\farming
 npm install
 npm start
 ```
+
+github account: paracet2000@gmail.com
+render account:
 # farming

@@ -10,7 +10,8 @@ router.patch('/schedules/:scheduleId/inactive', authRequired, automationControll
 
 router.post('/schedules/:scheduleId/trigger', authRequired, automationController.triggerSchedule);
 router.get('/executions', authRequired, automationController.listExecutions);
-router.get('/devices/:deviceId/schedules/poll', authRequired, automationController.pollDeviceSchedules);
-router.get('/device/schedules/poll', deviceAuthRequired, automationController.pollMyDeviceSchedules);
+router.get('/devices/:deviceId/schedules', authRequired, automationController.getDeviceSchedule);
+router.get('/devices/me/tasks', deviceAuthRequired, automationController.acceptPollFormESP);
+router.patch('/devices/me/executions', deviceAuthRequired, automationController.updateExecutionFromDevice);
 
 module.exports = router;

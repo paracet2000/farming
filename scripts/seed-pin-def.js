@@ -6,10 +6,13 @@ const PIN_TYPE_CODE = 'PIN_DEF';
 const PIN_TYPE_DESCRIPTION = 'ESP32 pin definitions';
 
 const PIN_DEFINITIONS = [
-  { confCode: 'pin16', confName: 'PIN16', confDescription: 'ESP32 GPIO 16', confValue: '16' },
-  { confCode: 'pin17', confName: 'PIN17', confDescription: 'ESP32 GPIO 17', confValue: '17' },
-  { confCode: 'pin18', confName: 'PIN18', confDescription: 'ESP32 GPIO 18', confValue: '18' },
-  { confCode: 'pin19', confName: 'PIN19', confDescription: 'ESP32 GPIO 19', confValue: '19' }
+  { confCode: 'pin16', confName: 'PIN16', confDescription: 'Water (GPIO 16)', confValue: '16' },
+  { confCode: 'pin17', confName: 'PIN17', confDescription: 'Food (GPIO 17)', confValue: '17' },
+  { confCode: 'pin18', confName: 'PIN18', confDescription: 'Light (GPIO 18)', confValue: '18' },
+  { confCode: 'pin19', confName: 'PIN19', confDescription: 'Fan (GPIO 19)', confValue: '19' },
+  { confCode: 'pin21', confName: 'PIN21', confDescription: 'Heat lamp (GPIO 21)', confValue: '21' },
+  { confCode: 'pin26', confName: 'PIN26', confDescription: 'DHT Outside (GPIO 26)', confValue: '26' },
+  { confCode: 'pin27', confName: 'PIN27', confDescription: 'DHT Inside (GPIO 27)', confValue: '27' }
 ];
 
 async function main() {

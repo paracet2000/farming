@@ -89,6 +89,24 @@ function deviceIdOf(req) {
   return String(req?.device?.deviceId || '');
 }
 
+async function ensureExecutionOwnedByDevice(deviceId, executionId) {
+  const execution = await prisma.automationExecutionLog.findUnique({
+    where: { executionId },
+    select: { executionId: true, scheduleId: true }
+  });
+
+  if (!execution) return { error: 'Execution not found' };
+  if (!execution.scheduleId) return { error: 'Execution has no scheduleId' };
+
+  const mapping = await prisma.scheduleHardware.findFirst({
+    where: { scheduleId: execution.scheduleId, deviceId },
+    select: { scheduleId: true }
+  });
+
+  if (!mapping) return { error: 'Execution not mapped to device' };
+  return { execution };
+}
+
 function pollIntervalMs() {
   const raw = Number(process.env.ESP_POLL_INTERVAL_MS);
   if (Number.isInteger(raw) && raw > 0) return raw;
@@ -260,7 +278,7 @@ exports.listExecutions = asyncHandler(async (req, res) => {
   return res.json(executions.map((item) => toExecutionResponse(item)));
 });
 
-exports.pollDeviceSchedules = asyncHandler(async (req, res) => {
+exports.getDeviceSchedule = asyncHandler(async (req, res) => {
   const requesterId = requireRequesterId(req, res);
   if (!requesterId) return;
 
@@ -319,38 +337,100 @@ exports.pollDeviceSchedules = asyncHandler(async (req, res) => {
   });
 });
 
-exports.pollMyDeviceSchedules = asyncHandler(async (req, res) => {
+exports.acceptPollFormESP = asyncHandler(async (req, res) => {
   const deviceId = deviceIdOf(req);
   if (!deviceId) {
     return res.status(401).json({ error: { message: 'Unauthorized device' } });
   }
 
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+  const currentDay = now.getDay(); // 0 = Sunday
+
+  // ดึง schedule ที่ active และตรงเวลา
   const rows = await prisma.scheduleHardware.findMany({
     where: {
       deviceId,
       schedule: {
         isActive: true,
-        ...(req?.device?.createdBy ? { createdBy: req.device.createdBy } : {})
+        hour: currentHour,
+        minute: currentMinute,
+        daysOfWeek: { has: currentDay },
+        ...(req?.device?.createdBy
+          ? { createdBy: req.device.createdBy }
+          : {})
       }
     },
-    include: {
-      schedule: true
+    select: {
+      scheduleId: true,
+      pinNumber: true,
+      duration: true
     }
   });
 
-  const schedules = rows
-    .map((item) => toDeviceSchedulePollResponse(item))
-    .sort((a, b) => {
-      if (a.hour !== b.hour) return a.hour - b.hour;
-      if (a.minute !== b.minute) return a.minute - b.minute;
-      return a.pinNumber - b.pinNumber;
-    });
+  if (!rows.length) {
+    return res.json({ tasks: [] });
+  }
 
-  return res.json({
-    deviceId: req.device.deviceId,
-    deviceName: req.device.deviceName,
-    pollIntervalMs: pollIntervalMs(),
-    polledAt: new Date().toISOString(),
-    schedules
+  // สร้าง execution log ให้แต่ละงาน
+  const tasks = await Promise.all(
+    rows.map(async (row) => {
+      const log = await prisma.automationExecutionLog.create({
+        data: {
+          scheduleId: row.scheduleId,
+          triggerSource: 'SCHEDULE',
+          status: 'RUNNING',
+          action: 1
+        }
+      });
+
+      return {
+        executionLogId: log.executionId,
+        scheduleId: row.scheduleId,
+        pin: row.pinNumber,
+        duration: row.duration
+      };
+    })
+  );
+
+  return res.json({ tasks });
+});
+
+exports.updateExecutionFromDevice = asyncHandler(async (req, res) => {
+  const deviceId = deviceIdOf(req);
+  if (!deviceId) {
+    return res.status(401).json({ error: { message: 'Unauthorized device' } });
+  }
+
+  const executionLogId = String(req.body?.executionLogId || '').trim();
+  if (!executionLogId) {
+    return res.status(400).json({ error: { message: 'executionLogId is required' } });
+  }
+
+  const status = String(req.body?.status || '').trim().toUpperCase();
+  if (status !== 'SUCCESS' && status !== 'FAILED' && status !== 'RUNNING') {
+    return res.status(400).json({ error: { message: 'status must be SUCCESS, FAILED, or RUNNING' } });
+  }
+
+  const ownership = await ensureExecutionOwnedByDevice(deviceId, executionLogId);
+  if (ownership.error) {
+    return res.status(403).json({ error: { message: ownership.error } });
+  }
+
+  const data = {
+    status,
+    ...(status === 'SUCCESS' || status === 'FAILED' ? { finishedAt: new Date() } : {})
+  };
+
+  if (req.body?.resultMessage !== undefined) {
+    data.resultMessage = String(req.body.resultMessage || '');
+  }
+
+  const updated = await prisma.automationExecutionLog.update({
+    where: { executionId: executionLogId },
+    data
   });
+
+  return res.json(toExecutionResponse(updated));
 });
