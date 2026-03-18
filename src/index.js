@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const bodyParser = require('express').json;
 
@@ -24,6 +25,8 @@ app.use(requestLogger);
 app.use(bodyParser());
 app.use(standardResponse);
 
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
 app.use('/auth', authRoutes);
 app.use('/users', userRoutes);
 app.use('/groups', groupRoutes);
@@ -32,7 +35,7 @@ app.use('/devices', deviceRoutes);
 app.use('/map', deviceScheduleRoutes);
 app.use('/configs', configRoutes);
 
-app.get('/', (req, res) => res.json({ ok: true, service: 'farming-api' }));
+app.get('/api/health', (req, res) => res.json({ ok: true, service: 'farming-api' }));
 
 // central error handler (must be after routes)
 app.use(errorHandler);
