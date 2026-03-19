@@ -1,7 +1,5 @@
 const prisma = require('../lib/prisma');
 const logger = require('../lib/logger');
-const { runScheduleExecution } = require('./automation.service');
-
 const RUNNER_INTERVAL_MS = Number(process.env.AUTOMATION_RUNNER_INTERVAL_MS || 30000);
 
 let runnerTimer = null;
@@ -32,19 +30,50 @@ async function tickAutomationRunner() {
 
     const minuteBucket = Math.floor(now.getTime() / 60000);
     for (const schedule of dueSchedules) {
-      const executionKey = `${schedule.scheduleId}:${minuteBucket}`;
-      const result = await runScheduleExecution({
-        schedule,
-        triggerSource: 'SCHEDULE',
-        requestedBy: null,
-        executionKey
-      });
+      try {
+        const mappings = await prisma.scheduleHardware.findMany({
+          where: { scheduleId: schedule.scheduleId }
+        });
 
-      if (result.skipped) {
-        logger.debug(
-          { scheduleId: schedule.scheduleId, executionKey },
-          'Skip duplicated schedule execution'
-        );
+        if (schedule.action !== 1) continue;
+
+        for (const map of mappings) {
+          if (!map.duration || map.duration <= 0) continue;
+
+          const executionKey = `${schedule.scheduleId}:${map.deviceId}:${map.pinNumber}:${minuteBucket}`;
+          try {
+            const execution = await prisma.automationExecutionLog.create({
+              data: {
+                scheduleId: schedule.scheduleId,
+                triggerSource: 'SCHEDULE',
+                action: schedule.action,
+                status: 'RUNNING',
+                executionKey
+              }
+            });
+
+            await prisma.deviceTask.create({
+              data: {
+                deviceId: map.deviceId,
+                pin: map.pinNumber,
+                duration: map.duration,
+                executionLogId: execution.executionId,
+                status: 'PENDING'
+              }
+            });
+          } catch (err) {
+            if (err && err.code === 'P2002') {
+              logger.debug(
+                { scheduleId: schedule.scheduleId, executionKey },
+                'Skip duplicated schedule execution'
+              );
+              continue;
+            }
+            throw err;
+          }
+        }
+      } catch (err) {
+        logger.error({ err, scheduleId: schedule.scheduleId }, 'Automation runner tick failed');
       }
     }
   } catch (err) {

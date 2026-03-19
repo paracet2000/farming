@@ -13,5 +13,6 @@ router.get('/executions', authRequired, automationController.listExecutions);
 router.get('/devices/:deviceId/schedules', authRequired, automationController.getDeviceSchedule);
 router.get('/devices/me/tasks', deviceAuthRequired, automationController.acceptPollFormESP);
 router.patch('/devices/me/executions', deviceAuthRequired, automationController.updateExecutionFromDevice);
+router.post('/devices/:deviceId/tasks', authRequired, automationController.createManualDeviceTask);
 
 module.exports = router;

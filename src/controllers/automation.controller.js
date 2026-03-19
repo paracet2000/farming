@@ -96,7 +96,14 @@ async function ensureExecutionOwnedByDevice(deviceId, executionId) {
   });
 
   if (!execution) return { error: 'Execution not found' };
-  if (!execution.scheduleId) return { error: 'Execution has no scheduleId' };
+  if (!execution.scheduleId) {
+    const task = await prisma.deviceTask.findFirst({
+      where: { executionLogId: execution.executionId, deviceId },
+      select: { taskId: true }
+    });
+    if (!task) return { error: 'Execution not mapped to device' };
+    return { execution };
+  }
 
   const mapping = await prisma.scheduleHardware.findFirst({
     where: { scheduleId: execution.scheduleId, deviceId },
@@ -343,56 +350,32 @@ exports.acceptPollFormESP = asyncHandler(async (req, res) => {
     return res.status(401).json({ error: { message: 'Unauthorized device' } });
   }
 
-  const now = new Date();
-  const currentHour = now.getHours();
-  const currentMinute = now.getMinutes();
-  const currentDay = now.getDay(); // 0 = Sunday
+  const pending = await prisma.$transaction(async (tx) => {
+    const rows = await tx.deviceTask.findMany({
+      where: { deviceId, status: 'PENDING' },
+      orderBy: { createdAt: 'asc' },
+      take: 20
+    });
 
-  // ดึง schedule ที่ active และตรงเวลา
-  const rows = await prisma.scheduleHardware.findMany({
-    where: {
-      deviceId,
-      schedule: {
-        isActive: true,
-        hour: currentHour,
-        minute: currentMinute,
-        daysOfWeek: { has: currentDay },
-        ...(req?.device?.createdBy
-          ? { createdBy: req.device.createdBy }
-          : {})
-      }
-    },
-    select: {
-      scheduleId: true,
-      pinNumber: true,
-      duration: true
-    }
+    if (!rows.length) return [];
+
+    await tx.deviceTask.updateMany({
+      where: { taskId: { in: rows.map((row) => row.taskId) } },
+      data: { status: 'RUNNING', startedAt: new Date() }
+    });
+
+    return rows;
   });
 
-  if (!rows.length) {
+  if (!pending.length) {
     return res.json({ tasks: [] });
   }
 
-  // สร้าง execution log ให้แต่ละงาน
-  const tasks = await Promise.all(
-    rows.map(async (row) => {
-      const log = await prisma.automationExecutionLog.create({
-        data: {
-          scheduleId: row.scheduleId,
-          triggerSource: 'SCHEDULE',
-          status: 'RUNNING',
-          action: 1
-        }
-      });
-
-      return {
-        executionLogId: log.executionId,
-        scheduleId: row.scheduleId,
-        pin: row.pinNumber,
-        duration: row.duration
-      };
-    })
-  );
+  const tasks = pending.map((row) => ({
+    executionLogId: row.executionLogId,
+    pin: row.pin,
+    duration: row.duration
+  }));
 
   return res.json({ tasks });
 });
@@ -432,5 +415,69 @@ exports.updateExecutionFromDevice = asyncHandler(async (req, res) => {
     data
   });
 
+  if (status === 'SUCCESS' || status === 'FAILED') {
+    await prisma.deviceTask.deleteMany({
+      where: { executionLogId }
+    });
+  }
+
   return res.json(toExecutionResponse(updated));
+});
+
+exports.createManualDeviceTask = asyncHandler(async (req, res) => {
+  const requesterId = requireRequesterId(req, res);
+  if (!requesterId) return;
+
+  const deviceId = String(req.params.deviceId || '').trim();
+  if (!deviceId) {
+    return res.status(400).json({ error: { message: 'deviceId is required' } });
+  }
+
+  const device = await prisma.device.findFirst({
+    where: { deviceId, createdBy: requesterId },
+    select: { deviceId: true, isActive: true }
+  });
+
+  if (!device) {
+    return res.status(404).json({ error: { message: 'Device not found' } });
+  }
+  if (!device.isActive) {
+    return res.status(409).json({ error: { message: 'Device is inactive' } });
+  }
+
+  const pin = normalizeInteger(req.body?.pin);
+  const duration = normalizeInteger(req.body?.duration);
+  if (pin === null || pin < 0) {
+    return res.status(400).json({ error: { message: 'pin must be a non-negative integer' } });
+  }
+  if (duration === null || duration <= 0) {
+    return res.status(400).json({ error: { message: 'duration must be a positive integer' } });
+  }
+
+  const execution = await prisma.automationExecutionLog.create({
+    data: {
+      scheduleId: null,
+      triggerSource: 'MANUAL',
+      status: 'RUNNING',
+      action: 1,
+      requestedBy: requesterId
+    }
+  });
+
+  await prisma.deviceTask.create({
+    data: {
+      deviceId: device.deviceId,
+      pin,
+      duration,
+      executionLogId: execution.executionId,
+      status: 'PENDING'
+    }
+  });
+
+  return res.status(201).json({
+    executionLogId: execution.executionId,
+    deviceId: device.deviceId,
+    pin,
+    duration
+  });
 });

@@ -23,6 +23,11 @@ enum ExecutionStatus {
   FAILED
 }
 
+enum DeviceTaskStatus {
+  PENDING
+  RUNNING
+}
+
 enum BridgeValueType {
   NUMBER @map("number")
   TEXT   @map("text")
@@ -115,6 +120,7 @@ model Device {
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   schedules     ScheduleHardware[]
+  tasks         DeviceTask[]
 
   @@index([deviceName])
   @@index([isActive])
@@ -148,10 +154,29 @@ model AutomationExecutionLog {
   startedAt      DateTime           @default(now())
   finishedAt     DateTime?
   resultMessage  String?
+  tasks          DeviceTask[]
 
   @@index([scheduleId, startedAt])
   @@index([triggerSource, startedAt])
   @@map("automation_execution_logs")
+}
+
+model DeviceTask {
+  taskId         String           @id @default(cuid())
+  deviceId       String
+  pin            Int
+  duration       Int
+  executionLogId String
+  status         DeviceTaskStatus @default(PENDING)
+  createdAt      DateTime         @default(now())
+  startedAt      DateTime?
+
+  device         Device           @relation(fields: [deviceId], references: [deviceId], onDelete: Cascade)
+  execution      AutomationExecutionLog @relation(fields: [executionLogId], references: [executionId], onDelete: Cascade)
+
+  @@index([deviceId, status, createdAt])
+  @@index([executionLogId])
+  @@map("device_tasks")
 }
 
 model ConfigType {

@@ -108,7 +108,8 @@ $(document).ready(async function () {
     'assign role': '\u{1F6E1}\u{FE0F}', // shield
     devices: '\u{1F4DF}', // pager
     'device schedule': '\u{23F1}\u{FE0F}', // stopwatch
-    automation: '\u{1F916}', // robot
+    control: '\u{1F3AE}', // control knobs
+    control: '\u{261D}', // robot
     config: '\u{2699}\u{FE0F}', // gear
     configs: '\u{2699}\u{FE0F}', // gear
     map: '\u{1F5FA}\u{FE0F}' // map
@@ -210,10 +211,12 @@ $(document).ready(async function () {
 
     if (openPath === '/users') return 'usersManagement';
     if (openPath === '/assign-role') return 'assignRole';
+    if (openPath === '/control') return 'control';
     if (openPath === '/devices' || openPath === '/device-schedule' || openPath === '/map') return 'deviceSchedule';
     if (menuName === 'users' || menuName === 'user management' || menuName === 'users management') return 'usersManagement';
     if (menuName === 'assign role' || menuName === 'assignrole' || menuName === 'role') return 'assignRole';
     if (menuName === 'devices' || menuName === 'device schedule' || menuName === 'device-schedule') return 'deviceSchedule';
+    if (menuName === 'control') return 'control';
     if (menuName === 'login') return 'login';
     if (menuName === 'register') return 'register';
     if (menuName === 'logout') return 'logout';
@@ -278,6 +281,18 @@ $(document).ready(async function () {
         if (!window.devicesSchedulePage || typeof window.devicesSchedulePage.render !== 'function') return false;
         openPageArea();
         window.devicesSchedulePage.render({
+          apiBase,
+          mountSelector: '.page-area',
+          onBack: closePageArea
+        });
+        return true;
+      }
+    },
+    control: {
+      run: function () {
+        if (!window.controlPage || typeof window.controlPage.render !== 'function') return false;
+        openPageArea();
+        window.controlPage.render({
           apiBase,
           mountSelector: '.page-area',
           onBack: closePageArea

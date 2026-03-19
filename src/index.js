@@ -37,6 +37,19 @@ app.use('/configs', configRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true, service: 'farming-api' }));
 
+app.get('*', (req, res, next) => {
+  if (!req.accepts('html')) return next();
+  if (req.path.startsWith('/api')) return next();
+  if (req.path.startsWith('/auth')) return next();
+  if (req.path.startsWith('/users')) return next();
+  if (req.path.startsWith('/groups')) return next();
+  if (req.path.startsWith('/automation')) return next();
+  if (req.path.startsWith('/devices')) return next();
+  if (req.path.startsWith('/map')) return next();
+  if (req.path.startsWith('/configs')) return next();
+  return res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+});
+
 // central error handler (must be after routes)
 app.use(errorHandler);
 
