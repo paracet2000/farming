@@ -35,10 +35,8 @@ async function tickAutomationRunner() {
           where: { scheduleId: schedule.scheduleId }
         });
 
-        if (schedule.action !== 1) continue;
-
         for (const map of mappings) {
-          if (!map.duration || map.duration <= 0) continue;
+          if (schedule.action === 1 && (!map.duration || map.duration <= 0)) continue;
 
           const executionKey = `${schedule.scheduleId}:${map.deviceId}:${map.pinNumber}:${minuteBucket}`;
           try {
@@ -56,7 +54,8 @@ async function tickAutomationRunner() {
               data: {
                 deviceId: map.deviceId,
                 pin: map.pinNumber,
-                duration: map.duration,
+                duration: schedule.action === 1 ? map.duration : 0,
+                action: schedule.action,
                 executionLogId: execution.executionId,
                 status: 'PENDING'
               }

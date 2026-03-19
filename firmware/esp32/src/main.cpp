@@ -169,17 +169,25 @@ bool isAllowedGpio(int pin) {
   }
 }
 
-void applyTask(int pin, int durationSec, const String& executionLogId) {
+void applyTask(int pin, int durationSec, int action, const String& executionLogId) {
   if (!isAllowedGpio(pin)) {
     logging(true, "[POLL] invalid pin " + String(pin));
     return;
   }
+  pinMode(pin, OUTPUT);
+
+  if (action == 0) {
+    setRelay(pin, false);
+    logging(true, "[POLL] action=OFF pin " + String(pin));
+    sendExecutionStatus(executionLogId, "SUCCESS");
+    return;
+  }
+
   if (durationSec <= 0) {
     logging(true, "[POLL] invalid duration for pin " + String(pin));
     return;
   }
 
-  pinMode(pin, OUTPUT);
   setRelay(pin, true);
   TaskContext* ctx = new TaskContext();
   if (!ctx) {
@@ -391,8 +399,28 @@ bool pollTheApi(void *) {
           const String scheduleId = task["scheduleId"].as<String>();
           const int pin = task["pin"].as<int>();
           const int duration = task["duration"].as<int>();
-          Serial.printf("[POLL] Task: logId=%s scheduleId=%s pin=%d duration=%d\n", logId.c_str(), scheduleId.c_str(), pin, duration);
-          applyTask(pin, duration, logId);
+          int action = 1;
+          if (task.containsKey("action")) {
+            JsonVariant act = task["action"];
+            if (act.is<const char*>()) {
+              String actStr = String(act.as<const char*>());
+              actStr.trim();
+              actStr.toUpperCase();
+              if (actStr == "OFF") action = 0;
+              else if (actStr == "ON") action = 1;
+            } else if (act.is<String>()) {
+              String actStr = act.as<String>();
+              actStr.trim();
+              actStr.toUpperCase();
+              if (actStr == "OFF") action = 0;
+              else if (actStr == "ON") action = 1;
+            } else {
+              int actNum = act.as<int>();
+              action = (actNum == 0) ? 0 : 1;
+            }
+          }
+          Serial.printf("[POLL] Task: logId=%s scheduleId=%s pin=%d duration=%d action=%d\n", logId.c_str(), scheduleId.c_str(), pin, duration, action);
+          applyTask(pin, duration, action, logId);
         }
       }
     }

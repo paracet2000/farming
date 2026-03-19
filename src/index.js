@@ -14,6 +14,7 @@ const automationRoutes = require('./routes/automation');
 const deviceRoutes = require('./routes/devices');
 const deviceScheduleRoutes = require('./routes/device-schedule');
 const configRoutes = require('./routes/configs');
+const controlSchemaRoutes = require('./routes/control-schema');
 const standardResponse = require('./middleware/stdResponse');
 const requestLogger = require('./middleware/requestLogger');
 const errorHandler = require('./middleware/errorHandler');
@@ -34,6 +35,7 @@ app.use('/automation', automationRoutes);
 app.use('/devices', deviceRoutes);
 app.use('/map', deviceScheduleRoutes);
 app.use('/configs', configRoutes);
+app.use('/control-schema', controlSchemaRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true, service: 'farming-api' }));
 

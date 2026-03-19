@@ -374,7 +374,8 @@ exports.acceptPollFormESP = asyncHandler(async (req, res) => {
   const tasks = pending.map((row) => ({
     executionLogId: row.executionLogId,
     pin: row.pin,
-    duration: row.duration
+    duration: row.duration,
+    action: row.action
   }));
 
   return res.json({ tasks });
@@ -447,11 +448,13 @@ exports.createManualDeviceTask = asyncHandler(async (req, res) => {
 
   const pin = normalizeInteger(req.body?.pin);
   const duration = normalizeInteger(req.body?.duration);
+  const action = normalizeInteger(req.body?.action);
   if (pin === null || pin < 0) {
     return res.status(400).json({ error: { message: 'pin must be a non-negative integer' } });
   }
-  if (duration === null || duration <= 0) {
-    return res.status(400).json({ error: { message: 'duration must be a positive integer' } });
+  const safeAction = action === 0 || action === 1 ? action : 1;
+  if (safeAction === 1 && (duration === null || duration <= 0)) {
+    return res.status(400).json({ error: { message: 'duration must be a positive integer for action=1' } });
   }
 
   const execution = await prisma.automationExecutionLog.create({
@@ -459,7 +462,7 @@ exports.createManualDeviceTask = asyncHandler(async (req, res) => {
       scheduleId: null,
       triggerSource: 'MANUAL',
       status: 'RUNNING',
-      action: 1,
+      action: safeAction,
       requestedBy: requesterId
     }
   });
@@ -468,7 +471,8 @@ exports.createManualDeviceTask = asyncHandler(async (req, res) => {
     data: {
       deviceId: device.deviceId,
       pin,
-      duration,
+      duration: safeAction === 1 ? duration : 0,
+      action: safeAction,
       executionLogId: execution.executionId,
       status: 'PENDING'
     }
@@ -478,6 +482,7 @@ exports.createManualDeviceTask = asyncHandler(async (req, res) => {
     executionLogId: execution.executionId,
     deviceId: device.deviceId,
     pin,
-    duration
+    duration: safeAction === 1 ? duration : 0,
+    action: safeAction
   });
 });

@@ -109,6 +109,7 @@ $(document).ready(async function () {
     devices: '\u{1F4DF}', // pager
     'device schedule': '\u{23F1}\u{FE0F}', // stopwatch
     control: '\u{1F3AE}', // control knobs
+    'control schema': '\u{2699}\u{FE0F}',
     control: '\u{261D}', // robot
     config: '\u{2699}\u{FE0F}', // gear
     configs: '\u{2699}\u{FE0F}', // gear
@@ -212,11 +213,13 @@ $(document).ready(async function () {
     if (openPath === '/users') return 'usersManagement';
     if (openPath === '/assign-role') return 'assignRole';
     if (openPath === '/control') return 'control';
+    if (openPath === '/control-schema-mnt') return 'controlSchemaMnt';
     if (openPath === '/devices' || openPath === '/device-schedule' || openPath === '/map') return 'deviceSchedule';
     if (menuName === 'users' || menuName === 'user management' || menuName === 'users management') return 'usersManagement';
     if (menuName === 'assign role' || menuName === 'assignrole' || menuName === 'role') return 'assignRole';
     if (menuName === 'devices' || menuName === 'device schedule' || menuName === 'device-schedule') return 'deviceSchedule';
     if (menuName === 'control') return 'control';
+    if (menuName === 'control schema' || menuName === 'control-schema-mnt') return 'controlSchemaMnt';
     if (menuName === 'login') return 'login';
     if (menuName === 'register') return 'register';
     if (menuName === 'logout') return 'logout';
@@ -293,6 +296,18 @@ $(document).ready(async function () {
         if (!window.controlPage || typeof window.controlPage.render !== 'function') return false;
         openPageArea();
         window.controlPage.render({
+          apiBase,
+          mountSelector: '.page-area',
+          onBack: closePageArea
+        });
+        return true;
+      }
+    },
+    controlSchemaMnt: {
+      run: function () {
+        if (!window.controlSchemaMntPage || typeof window.controlSchemaMntPage.render !== 'function') return false;
+        openPageArea();
+        window.controlSchemaMntPage.render({
           apiBase,
           mountSelector: '.page-area',
           onBack: closePageArea

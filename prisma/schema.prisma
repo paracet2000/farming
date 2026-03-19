@@ -34,6 +34,13 @@ enum BridgeValueType {
   DATE   @map("date")
 }
 
+enum ControlType {
+  GROUP
+  TOGGLE
+  DURATION
+  LINK
+}
+
 model User {
   userId           String        @id @default(cuid())
   empcode          String?
@@ -121,6 +128,7 @@ model Device {
   updatedAt     DateTime           @updatedAt
   schedules     ScheduleHardware[]
   tasks         DeviceTask[]
+  controls      ControlSchema[]
 
   @@index([deviceName])
   @@index([isActive])
@@ -166,6 +174,7 @@ model DeviceTask {
   deviceId       String
   pin            Int
   duration       Int
+  action         Int                @db.SmallInt
   executionLogId String
   status         DeviceTaskStatus @default(PENDING)
   createdAt      DateTime         @default(now())
@@ -215,4 +224,21 @@ model CommonBridge {
   @@index([leftCode])
   @@index([rightCode])
   @@map("common_bridges")
+}
+
+model ControlSchema {
+  schemaId    String      @id @default(cuid())
+  deviceId    String
+  type        ControlType
+  label       String
+  orderIndex  Int         @default(0)
+  isActive    Boolean     @default(true)
+  meta        Json?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  device      Device      @relation(fields: [deviceId], references: [deviceId], onDelete: Cascade)
+
+  @@index([deviceId, type, orderIndex])
+  @@map("control_schema")
 }
