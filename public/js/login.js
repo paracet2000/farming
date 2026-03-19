@@ -30,8 +30,8 @@
     const $shell = $('<div/>', { class: 'page-shell' });
     const $header = $('<div/>', { class: 'page-header' });
     const $titleWrap = $('<div/>');
-    $('<div/>', { class: 'page-title', text: 'Login' }).appendTo($titleWrap);
-    $('<div/>', { class: 'page-note', text: 'Sign in to your account' }).appendTo($titleWrap);
+    const $pageTitle = $('<div/>', { class: 'page-title', text: 'Login' }).appendTo($titleWrap);
+    const $pageNote = $('<div/>', { class: 'page-note', text: 'Sign in to your account' }).appendTo($titleWrap);
     $header.append($titleWrap);
 
     if (onBack) {
@@ -102,6 +102,18 @@
         );
       }
     }
+
+    async function loadPageText() {
+      try {
+        const page = await apiClient.get('/configs/page', { query: { code: 'login' } });
+        if (page && page.confName) $pageTitle.text(page.confName);
+        if (page && page.confDescription) $pageNote.text(page.confDescription);
+      } catch (_) {
+        // fallback
+      }
+    }
+
+    loadPageText();
 
     $submit.on('click', async function onSubmit() {
       setFeedback('', '');

@@ -39,8 +39,8 @@
     var $shell = $('<div/>', { class: 'page-shell' });
     var $header = $('<div/>', { class: 'page-header' });
     var $titleWrap = $('<div/>');
-    $('<div/>', { class: 'page-title', text: 'Assign Role' }).appendTo($titleWrap);
-    $('<div/>', { class: 'page-note', text: 'Assign roles to a user (admin only)' }).appendTo($titleWrap);
+    var $pageTitle = $('<div/>', { class: 'page-title', text: 'Assign Role' }).appendTo($titleWrap);
+    var $pageNote = $('<div/>', { class: 'page-note', text: 'Assign roles to a user (admin only)' }).appendTo($titleWrap);
     $header.append($titleWrap);
 
     if (onBack) {
@@ -71,6 +71,16 @@
 
     function setFeedback(message, type) {
       $feedback.removeClass('success error').addClass(type || '').text(message || '');
+    }
+
+    async function loadPageText() {
+      try {
+        var page = await apiClient.get('/configs/page', { query: { code: 'assign-role' } });
+        if (page && page.confName) $pageTitle.text(page.confName);
+        if (page && page.confDescription) $pageNote.text(page.confDescription);
+      } catch (_) {
+        // fallback
+      }
     }
 
     function setLoading(loading) {
@@ -212,6 +222,7 @@
       }
     });
 
+    loadPageText();
     loadUsers();
   }
 

@@ -57,8 +57,8 @@
     var $shell = $('<div/>', { class: 'page-shell devices-page' });
     var $header = $('<div/>', { class: 'page-header' });
     var $titleWrap = $('<div/>');
-    $('<div/>', { class: 'page-title', text: 'Devices & Schedule' }).appendTo($titleWrap);
-    $('<div/>', { class: 'page-note', text: 'Manage device schedule mappings in one place' }).appendTo($titleWrap);
+    var $pageTitle = $('<div/>', { class: 'page-title', text: 'Devices & Schedule' }).appendTo($titleWrap);
+    var $pageNote = $('<div/>', { class: 'page-note', text: 'Manage device schedule mappings in one place' }).appendTo($titleWrap);
     $header.append($titleWrap);
 
     if (onBack) {
@@ -115,6 +115,16 @@
 
     function setFeedback(message, type) {
       $feedback.removeClass('success error').addClass(type || '').text(message || '');
+    }
+
+    async function loadPageText() {
+      try {
+        var page = await apiClient.get('/configs/page', { query: { code: 'device-schedule' } });
+        if (page && page.confName) $pageTitle.text(page.confName);
+        if (page && page.confDescription) $pageNote.text(page.confDescription);
+      } catch (_) {
+        // fallback to default text
+      }
     }
 
     function showToast(message, type) {
@@ -1057,6 +1067,7 @@
 
     async function init() {
       try {
+        await loadPageText();
         await preloadPageData();
         initUi();
       } catch (err) {

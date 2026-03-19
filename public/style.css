@@ -330,3 +330,116 @@ body.menu-page-active #menu-dock {
         min-width: 0;
     }
 }
+
+.control-shell {
+    max-width: 980px;
+    margin: 0 auto;
+}
+
+.control-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 18px 0 16px;
+    flex-wrap: wrap;
+}
+
+.control-device-select {
+    flex: 1 1 320px;
+    min-width: 220px;
+}
+
+.control-gear-btn {
+    border: 1px solid rgba(20, 88, 59, 0.3);
+    background: rgba(255, 255, 255, 0.92);
+    border-radius: 10px;
+    width: 44px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.control-gear-btn i {
+    font-size: 20px;
+    color: var(--ink);
+}
+
+.control-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.control-card {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.92);
+    padding: 14px 16px;
+    box-shadow: 0 8px 16px rgba(21, 82, 56, 0.08);
+}
+
+.control-card.group-card {
+    border: 0;
+    color: #ffffff;
+    box-shadow: 0 12px 24px rgba(20, 85, 58, 0.18);
+}
+
+.control-card.group-card .control-title {
+    color: #ffffff;
+}
+
+.control-title {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.control-subtitle {
+    font-size: 13px;
+    color: var(--ink-muted);
+    margin-bottom: 10px;
+}
+
+.control-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.control-actions .dx-button {
+    min-width: 120px;
+}
+
+.control-duration-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.control-duration-row .dx-numberbox {
+    max-width: 160px;
+}
+
+.control-link-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+@media (max-width: 860px) {
+    .control-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .control-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}

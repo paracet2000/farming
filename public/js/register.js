@@ -29,8 +29,8 @@
     const $shell = $('<div/>', { class: 'page-shell' });
     const $header = $('<div/>', { class: 'page-header' });
     const $titleWrap = $('<div/>');
-    $('<div/>', { class: 'page-title', text: 'Register' }).appendTo($titleWrap);
-    $('<div/>', { class: 'page-note', text: 'Create a new user account' }).appendTo($titleWrap);
+    const $pageTitle = $('<div/>', { class: 'page-title', text: 'Register' }).appendTo($titleWrap);
+    const $pageNote = $('<div/>', { class: 'page-note', text: 'Create a new user account' }).appendTo($titleWrap);
     $header.append($titleWrap);
 
     if (onBack) {
@@ -108,6 +108,16 @@
       $feedback.removeClass('success error').addClass(type || '').text(message || '');
     }
 
+    async function loadPageText() {
+      try {
+        const page = await apiClient.get('/configs/page', { query: { code: 'register' } });
+        if (page && page.confName) $pageTitle.text(page.confName);
+        if (page && page.confDescription) $pageNote.text(page.confDescription);
+      } catch (_) {
+        // fallback
+      }
+    }
+
     function setLoading(loading) {
       $submit.prop('disabled', Boolean(loading));
       $submit.text(loading ? 'Submitting...' : 'Create Account');
@@ -122,6 +132,8 @@
         );
       }
     }
+
+    loadPageText();
 
     $submit.on('click', async function onSubmit() {
       setFeedback('', '');

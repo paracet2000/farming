@@ -5,6 +5,11 @@ function requesterIdOf(req) {
   return String(req?.user?.userId || '');
 }
 
+function isAdmin(req) {
+  const roles = Array.isArray(req?.user?.roles) ? req.user.roles : [];
+  return roles.map((r) => String(r).toLowerCase()).includes('admin');
+}
+
 function normalizeString(value) {
   if (value === undefined || value === null) return null;
   const str = String(value).trim();
@@ -35,6 +40,9 @@ exports.listControlSchema = asyncHandler(async (req, res) => {
   if (!requesterId) {
     return res.status(401).json({ error: { message: 'Unauthorized' } });
   }
+  if (!isAdmin(req)) {
+    return res.status(403).json({ error: { message: 'Admin only' } });
+  }
 
   const deviceId = normalizeString(req.query.deviceId);
   if (!deviceId) {
@@ -56,6 +64,9 @@ exports.createControlSchema = asyncHandler(async (req, res) => {
   const requesterId = requesterIdOf(req);
   if (!requesterId) {
     return res.status(401).json({ error: { message: 'Unauthorized' } });
+  }
+  if (!isAdmin(req)) {
+    return res.status(403).json({ error: { message: 'Admin only' } });
   }
 
   const deviceId = normalizeString(req.body?.deviceId);
@@ -92,6 +103,9 @@ exports.updateControlSchema = asyncHandler(async (req, res) => {
   if (!requesterId) {
     return res.status(401).json({ error: { message: 'Unauthorized' } });
   }
+  if (!isAdmin(req)) {
+    return res.status(403).json({ error: { message: 'Admin only' } });
+  }
 
   const schemaId = normalizeString(req.params.id);
   if (!schemaId) {
@@ -127,6 +141,9 @@ exports.deleteControlSchema = asyncHandler(async (req, res) => {
   const requesterId = requesterIdOf(req);
   if (!requesterId) {
     return res.status(401).json({ error: { message: 'Unauthorized' } });
+  }
+  if (!isAdmin(req)) {
+    return res.status(403).json({ error: { message: 'Admin only' } });
   }
 
   const schemaId = normalizeString(req.params.id);

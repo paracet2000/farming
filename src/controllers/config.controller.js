@@ -139,3 +139,26 @@ exports.listPinDefinitions = asyncHandler(async (req, res) => {
   res.set('X-Cache', bypassCache ? 'BYPASS' : 'MISS');
   return res.json(items);
 });
+
+exports.getPageConfig = asyncHandler(async (req, res) => {
+  const code = String(req?.query?.code || '').trim();
+  if (!code) {
+    return res.status(400).json({ error: { message: 'code is required' } });
+  }
+
+  const row = await prisma.configDetail.findFirst({
+    where: { typCode: 'PAGE', confCode: code }
+  });
+
+  if (!row) {
+    return res.status(404).json({ error: { message: 'Page config not found' } });
+  }
+
+  return res.json({
+    typCode: row.typCode,
+    confCode: row.confCode,
+    confName: row.confName || '',
+    confDescription: row.confDescription || '',
+    confValue: row.confValue || null
+  });
+});

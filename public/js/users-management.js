@@ -97,8 +97,8 @@
     var $shell = $('<div/>', { class: 'page-shell devices-page' });
     var $header = $('<div/>', { class: 'page-header' });
     var $titleWrap = $('<div/>');
-    $('<div/>', { class: 'page-title', text: 'Users Management' }).appendTo($titleWrap);
-    $('<div/>', { class: 'page-note', text: 'Manage user profile and permissions' }).appendTo($titleWrap);
+    var $pageTitle = $('<div/>', { class: 'page-title', text: 'Users Management' }).appendTo($titleWrap);
+    var $pageNote = $('<div/>', { class: 'page-note', text: 'Manage user profile and permissions' }).appendTo($titleWrap);
     $header.append($titleWrap);
 
     if (onBack) {
@@ -132,6 +132,16 @@
 
     function setFeedback(message, type) {
       $feedback.removeClass('success error').addClass(type || '').text(message || '');
+    }
+
+    async function loadPageText() {
+      try {
+        var page = await apiClient.get('/configs/page', { query: { code: 'users' } });
+        if (page && page.confName) $pageTitle.text(page.confName);
+        if (page && page.confDescription) $pageNote.text(page.confDescription);
+      } catch (_) {
+        // fallback to default text
+      }
     }
 
     function showToast(message, type) {
@@ -377,6 +387,7 @@
 
     async function init() {
       try {
+        await loadPageText();
         await loadViewer();
         if (!viewer.isAdmin) {
           setFeedback('Forbidden: admin role required', 'error');
