@@ -103,9 +103,11 @@
       }
     }
 
+    var pageCode = opts.pageCode || window.location.pathname || 'login';
+
     async function loadPageText() {
       try {
-        const page = await apiClient.get('/configs/page', { query: { code: 'login' } });
+        const page = await apiClient.get('/configs/page', { query: { code: pageCode } });
         if (page && page.confName) $pageTitle.text(page.confName);
         if (page && page.confDescription) $pageNote.text(page.confDescription);
       } catch (_) {

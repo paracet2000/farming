@@ -108,9 +108,11 @@
       $feedback.removeClass('success error').addClass(type || '').text(message || '');
     }
 
+    var pageCode = opts.pageCode || window.location.pathname || 'register';
+
     async function loadPageText() {
       try {
-        const page = await apiClient.get('/configs/page', { query: { code: 'register' } });
+        const page = await apiClient.get('/configs/page', { query: { code: pageCode } });
         if (page && page.confName) $pageTitle.text(page.confName);
         if (page && page.confDescription) $pageNote.text(page.confDescription);
       } catch (_) {

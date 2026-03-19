@@ -243,6 +243,7 @@ $(document).ready(async function () {
           apiBase,
           mountSelector: '.page-area',
           onBack: closePageArea,
+          pageCode: '/login',
           onSuccess: function () {
             closePageArea();
             window.location.reload();
@@ -258,6 +259,7 @@ $(document).ready(async function () {
         window.registerPage.render({
           apiBase,
           mountSelector: '.page-area',
+          pageCode: '/register',
           onBack: closePageArea
         });
         return true;
@@ -271,6 +273,7 @@ $(document).ready(async function () {
           apiBase,
           mountSelector: '.page-area',
           onBack: closePageArea,
+          pageCode: '/assign-role',
           onSuccess: function () {
             closePageArea();
             window.location.reload();
@@ -286,6 +289,7 @@ $(document).ready(async function () {
         window.devicesSchedulePage.render({
           apiBase,
           mountSelector: '.page-area',
+          pageCode: '/devices',
           onBack: closePageArea
         });
         return true;
@@ -298,6 +302,7 @@ $(document).ready(async function () {
         window.controlPage.render({
           apiBase,
           mountSelector: '.page-area',
+          pageCode: '/control',
           onBack: closePageArea
         });
         return true;
@@ -310,6 +315,7 @@ $(document).ready(async function () {
         window.controlSchemaMntPage.render({
           apiBase,
           mountSelector: '.page-area',
+          pageCode: '/control-schema-mnt',
           onBack: closePageArea
         });
         return true;
@@ -322,6 +328,7 @@ $(document).ready(async function () {
         window.usersManagementPage.render({
           apiBase,
           mountSelector: '.page-area',
+          pageCode: '/user',
           onBack: closePageArea
         });
         return true;

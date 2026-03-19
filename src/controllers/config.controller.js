@@ -141,13 +141,30 @@ exports.listPinDefinitions = asyncHandler(async (req, res) => {
 });
 
 exports.getPageConfig = asyncHandler(async (req, res) => {
-  const code = String(req?.query?.code || '').trim();
-  if (!code) {
+  const rawCode = String(req?.query?.code || '').trim();
+  if (!rawCode) {
     return res.status(400).json({ error: { message: 'code is required' } });
   }
 
-  const row = await prisma.configDetail.findFirst({
-    where: { typCode: 'PAGE', confCode: code }
+  const code = rawCode.toLowerCase();
+  const codeWithSlash = code.startsWith('/') ? code : `/${code}`;
+
+  const rows = await prisma.configDetail.findMany({
+    where: { typCode: 'MENU' },
+    orderBy: [{ confCode: 'asc' }]
+  });
+
+  const row = rows.find((item) => {
+    const meta = parseMenuMeta(item.confValue);
+    const confCode = String(item.confCode || '').trim().toLowerCase();
+    const confName = String(item.confName || '').trim().toLowerCase();
+    const path = String(meta.path || meta.route || item.confValue || '').trim().toLowerCase();
+
+    if (confCode && confCode === code) return true;
+    if (confName && confName === code) return true;
+    if (path && (path === code || path === codeWithSlash)) return true;
+
+    return false;
   });
 
   if (!row) {

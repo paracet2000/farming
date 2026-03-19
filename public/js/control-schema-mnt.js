@@ -92,9 +92,11 @@
       }
     }
 
+    var pageCode = opts.pageCode || window.location.pathname || 'control-schema-mnt';
+
     async function loadPageText() {
       try {
-        var page = await apiClient.get('/configs/page', { query: { code: 'control-schema-mnt' } });
+        var page = await apiClient.get('/configs/page', { query: { code: pageCode } });
         if (page && page.confName) $pageTitle.text(page.confName);
         if (page && page.confDescription) $pageNote.text(page.confDescription);
       } catch (_) {
